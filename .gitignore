@@ -1,0 +1,79 @@
+# ──────────────────────────────────────────────
+# Python
+# ──────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+*.egg
+dist/
+build/
+*.whl
+
+# ──────────────────────────────────────────────
+# Virtual Environments
+# ──────────────────────────────────────────────
+.venv/
+venv/
+ENV/
+.uv/
+
+# ──────────────────────────────────────────────
+# Testing & Coverage
+# ──────────────────────────────────────────────
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+
+# ──────────────────────────────────────────────
+# IDE / Editor
+# ──────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# ──────────────────────────────────────────────
+# OS Files
+# ──────────────────────────────────────────────
+Thumbs.db
+Desktop.ini
+
+# ──────────────────────────────────────────────
+# ArchMotion Specific
+# ──────────────────────────────────────────────
+# Render output (video files should not be committed)
+*.mp4
+*.avi
+*.mkv
+*.mov
+
+# Temporary frame dumps (should NEVER exist per Zero-Disk rule)
+*.png
+*.jpg
+*.jpeg
+*.bmp
+
+# Benchmark results
+benchmarks/results/
+
+# Documentation build
+site/
+
+MEMORY.md
+CLAUDE.md
+PRD&Scope.md
+OpenSource.md
+Rendering_Engine.md
+USER_API&DSL.md
+CORE_ENGINE&ARCHITECTURE.md
+RECORD_AND_NEW_PLAN.md
+ROADMAP.md
