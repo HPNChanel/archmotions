@@ -1,0 +1,45 @@
+feat(release): promote to v1.0.0 with advanced A* routing, zero-copy IPC, web exporters, and CLI
+
+This release elevates ArchMotion to v1.0.0 (Production/Stable), introducing major
+architectural enhancements to routing aesthetics, multi-process performance,
+cross-platform web export, and developer experience.
+
+Key Features & Architectural Enhancements:
+
+1. Advanced Routing & Collision Avoidance (A*):
+   - Replace default Manhattan routing when obstacles are detected, leveraging an A*
+     visibility-graph pathfinding algorithm.
+   - Automatically calculate non-intersecting pathways around intermediate nodes
+     with a configurable inflation margin (16px default) to maintain layout aesthetics.
+   - Introduce connection corner rounding (conn_corner_radius: 12px) to soften visual layouts.
+
+2. High-Performance Zero-Copy IPC (SharedMemory Ring Buffer):
+   - Replace heavy, unbounded multiprocessing pickle serialization with a fixed-size
+     32MB SharedMemory ring buffer (shm.py).
+   - Implement low-overhead binary sequence frame buffers for zero-disk I/O and near-zero
+     IPC overhead during concurrent Skia rendering.
+   - Ensure thread-safe read/write sync with state tracking for robust worker execution.
+
+3. Web & Interactive Exporters:
+   - Implement Lottie JSON Exporter conforming to Bodymovin specification (v5.7.4)
+     for vector animations in web browsers.
+   - Add Animated SVG Exporter leveraging raw inline CSS @keyframes.
+   - Add HTML Player Builder embedding lottie-web with responsive controls (play, pause,
+     scrubbing, speed scaling, loop toggle).
+
+4. Extensible Primitives & Custom Styling:
+   - Introduce Cloud, Queue, Cache, and User primitives with dedicated renderers.
+   - Deliver 4 production-grade themes: dark_terminal, neon_cyber, blueprint, light_paper.
+   - Support theme overrides via both the Python API and standard YAML configuration.
+
+5. Unified CLI and Public API:
+   - Expose the main API surface directly in `archmotion` namespace (7 primitives,
+     8 animation types, YAML loaders, and connection controls).
+   - Establish `Scene.export()` to handle MP4, Lottie JSON, SVG, and HTML players uniformly.
+   - Design an argparse-based CLI supporting format auto-detect (.mp4, .json, .svg, .html)
+     and theme/minification flags.
+
+6. Repository Stabilisation & Quality:
+   - Target full PEP 561 compliance with `py.typed` marker.
+   - Update MkDocs Material documentation site (4 core pages) and 6 runnable example scripts.
+   - Expand the test suite to 462 automated assertions with 100% success rate.

@@ -250,6 +250,10 @@ def paint_connection(
     line_paint.setStrokeCap(skia.Paint.kRound_Cap)
     line_paint.setStrokeJoin(skia.Paint.kRound_Join)
 
+    # Rounded corners for Manhattan routing bends
+    if theme.conn_corner_radius > 0.01:
+        line_paint.setPathEffect(skia.CornerPathEffect.Make(theme.conn_corner_radius))
+
     path = skia.Path()
     path.moveTo(*route[0])
     for point in route[1:]:

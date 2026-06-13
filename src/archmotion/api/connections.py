@@ -43,6 +43,7 @@ class Connection:
     target: Node
     label: str | None = None
     waypoints: list[tuple[float, float]] | None = None
+    corner_radius: float | None = None
     id: str = field(default_factory=lambda: uuid.uuid4().hex[:8])
     primitive_type: PrimitiveType = field(default=PrimitiveType.CONNECTION, init=False)
     z_index: int = field(default=Z_CONNECTION, init=False)

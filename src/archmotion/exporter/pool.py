@@ -1,11 +1,17 @@
 """Multiprocessing pool orchestration for parallel frame rendering.
 
 Architectural Note:
-    This module manages the Pool.imap() -> FFmpegPipe.write_frame() pipeline.
+    This module manages the Pool.imap() → FFmpegPipe.write_frame() pipeline.
     Frames are rendered in parallel by worker processes, then streamed to
     FFmpeg in sequential order (imap preserves order).
 
-    Zero-Disk I/O: Raw RGBA bytes flow from workers -> main process -> FFmpeg stdin.
+    v0.2.0 SharedMemory IPC:
+        Workers write rendered RGBA bytes directly into pre-allocated
+        SharedMemory ring buffer slots (zero-copy, zero-serialization).
+        Main process reads from shared memory and pipes to FFmpeg.
+        Falls back to standard pickle IPC if SharedMemory allocation fails.
+
+    Zero-Disk I/O: Raw RGBA bytes flow from workers → shared memory → FFmpeg stdin.
     No temporary files are ever written to disk.
 
     Worker Sizing:
@@ -23,6 +29,12 @@ from typing import Callable
 from archmotion._types import PrimitiveType, Point
 from archmotion.constants import MAX_WORKERS, WORKER_RATIO
 from archmotion.exporter.ffmpeg import FFmpegPipe
+from archmotion.exporter.shm import (
+    SharedMemoryRing,
+    _DEFAULT_RING_SIZE,
+    iter_shm_render_args,
+    render_frame_to_shm,
+)
 from archmotion.layout.resolver import ResolvedLayout
 from archmotion.renderer.frame import FrameSpec, render_frame
 from archmotion.renderer.theme import ThemeConfig
@@ -143,30 +155,35 @@ def export_video(
     on_progress: ProgressCallback | None = None,
     ffmpeg_path: str | None = None,
     encoder_override: object | None = None,
+    use_shared_memory: bool = True,
 ) -> ExportResult:
     """Execute the full render + export pipeline.
 
-    This is the main entry point for PLAN-005.
-
-    Pipeline:
+    Pipeline (SharedMemory mode):
         1. Build FrameSpecs for all frames
-        2. Open FFmpegPipe (auto-detect encoder)
-        3. Create multiprocessing Pool
-        4. Pool.imap(render_frame, specs) -> sequential byte stream
-        5. Pipe each frame's bytes to FFmpeg
-        6. Close FFmpeg pipe, verify output
+        2. Allocate SharedMemory ring buffer (4 slots × frame_size)
+        3. Open FFmpegPipe (auto-detect encoder)
+        4. Create multiprocessing Pool
+        5. Pool.imap(render_frame_to_shm, args) → write to ring slot
+        6. Main process reads slot → pipe to FFmpeg
+        7. Close ring buffer and FFmpeg pipe
+
+    Fallback (Pickle mode):
+        If SharedMemory allocation fails or ``use_shared_memory=False``,
+        falls back to standard Pool.imap(render_frame) → bytes → FFmpeg.
 
     Args:
         timeline: Compiled timeline from Phase 3.
         layout: Resolved layout from Phase 2.
         theme: Visual theme config.
-        node_labels: Node ID -> label text mapping.
-        node_types: Node ID -> PrimitiveType mapping.
-        connection_labels: Connection ID -> label text mapping.
+        node_labels: Node ID → label text mapping.
+        node_types: Node ID → PrimitiveType mapping.
+        connection_labels: Connection ID → label text mapping.
         output_path: Output .mp4 file path.
         on_progress: Optional callback for progress reporting.
         ffmpeg_path: FFmpeg binary path (auto-detected if None).
         encoder_override: Force a specific EncoderConfig (auto-detected if None).
+        use_shared_memory: Enable SharedMemory IPC (default True, fallback on failure).
 
     Returns:
         ExportResult with file path, frame count, and metadata.
@@ -201,19 +218,45 @@ def export_video(
     # 3. Determine worker count
     worker_count = compute_worker_count()
 
+    # 4. Choose IPC strategy
+    frame_size = layout.canvas_width * layout.canvas_height * 4
+    ring: SharedMemoryRing | None = None
+
+    if use_shared_memory:
+        try:
+            ring = SharedMemoryRing(
+                frame_size=frame_size,
+                num_slots=min(worker_count + 1, _DEFAULT_RING_SIZE),
+            )
+        except OSError:
+            # SharedMemory allocation failed — fallback to pickle
+            ring = None
+
     try:
         frames_written = 0
 
-        # 4. Parallel render + sequential pipe
-        with mp.Pool(processes=worker_count) as pool:
-            for frame_bytes in pool.imap(render_frame, specs):
-                # 5. Stream to FFmpeg
-                pipe.write_frame(frame_bytes)
-                frames_written += 1
+        if ring is not None:
+            # ── SharedMemory Pipeline ──
+            shm_args = list(iter_shm_render_args(specs, ring))
 
-                # Progress callback
-                if on_progress is not None:
-                    on_progress(frames_written, total_frames)
+            with mp.Pool(processes=worker_count) as pool:
+                for frame_index in pool.imap(render_frame_to_shm, shm_args):
+                    # Read frame from shared memory (zero-copy read)
+                    frame_bytes = ring.read_slot(frame_index)
+                    pipe.write_frame(frame_bytes)
+                    frames_written += 1
+
+                    if on_progress is not None:
+                        on_progress(frames_written, total_frames)
+        else:
+            # ── Pickle Fallback Pipeline ──
+            with mp.Pool(processes=worker_count) as pool:
+                for frame_bytes in pool.imap(render_frame, specs):
+                    pipe.write_frame(frame_bytes)
+                    frames_written += 1
+
+                    if on_progress is not None:
+                        on_progress(frames_written, total_frames)
 
         # 6. Finalize FFmpeg
         pipe.close()
@@ -221,6 +264,10 @@ def export_video(
     except Exception:
         pipe.kill()
         raise
+    finally:
+        # 7. Always clean up shared memory
+        if ring is not None:
+            ring.close()
 
     # Build result
     file_size = output_path.stat().st_size if output_path.exists() else 0
@@ -231,3 +278,4 @@ def export_video(
         encoder_label=pipe.encoder.label,
         file_size_bytes=file_size,
     )
+

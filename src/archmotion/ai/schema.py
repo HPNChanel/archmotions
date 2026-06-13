@@ -92,12 +92,14 @@ class ConnectionSpec(BaseModel):
         source: ID of the source node.
         target: ID of the target node.
         label: Optional label displayed on the connection line.
+        corner_radius: Override theme default for rounded corners (pixels).
     """
 
     id: str = Field(..., min_length=1, max_length=50)
     source: str = Field(..., min_length=1, max_length=50)
     target: str = Field(..., min_length=1, max_length=50)
     label: str | None = Field(default=None, max_length=MAX_CONNECTION_LABEL_LENGTH)
+    corner_radius: float | None = Field(default=None, ge=0.0, le=50.0)
 
     @model_validator(mode="after")
     def no_self_loop(self) -> "ConnectionSpec":
@@ -215,6 +217,7 @@ class SceneSpec(BaseModel):
     """
 
     version: str = "1.0"
+    theme: str = Field(default="dark_terminal", max_length=30)
     resolution: Literal["720p", "1080p", "1440p", "4k"] = "1080p"
     fps: int = Field(default=60, ge=15, le=120)
     nodes: list[NodeSpec] = Field(..., min_length=1)

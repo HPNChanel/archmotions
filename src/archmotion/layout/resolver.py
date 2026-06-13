@@ -464,7 +464,11 @@ def _route_connections(
     connections: list[Connection],
     node_boxes: dict[str, BoundingBox],
 ) -> dict[str, list[Point]]:
-    """Route all connections using Manhattan routing.
+    """Route all connections using obstacle-aware Manhattan routing.
+
+    Each connection is routed through A* pathfinding that avoids
+    all other nodes' BoundingBoxes. Falls back to direct Manhattan
+    routing if A* cannot find a valid path.
 
     Args:
         connections: All connections in the scene.
@@ -474,6 +478,7 @@ def _route_connections(
         Dictionary mapping connection ID to routed polyline points.
     """
     routes: dict[str, list[Point]] = {}
+    all_boxes = list(node_boxes.values())
 
     for conn in connections:
         src_bbox = node_boxes.get(conn.source.id)
@@ -483,7 +488,13 @@ def _route_connections(
             # Skip connections to unresolved nodes
             continue
 
-        route = manhattan_route(src_bbox, tgt_bbox, conn.waypoints)
+        route = manhattan_route(
+            src_bbox,
+            tgt_bbox,
+            conn.waypoints,
+            obstacles=all_boxes,
+        )
         routes[conn.id] = route
 
     return routes
+

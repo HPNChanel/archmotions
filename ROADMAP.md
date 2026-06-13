@@ -56,12 +56,12 @@ v0.1.0 (MVP)          v0.2.0 (Polish)        v1.0.0 (Production)
 | Extended Animations (Highlight, ColorShift, Scale) | ✅ Done | 4 classes, 3 decomposers, 38 tests |
 | YAML AI Interface (LLM -> YAML -> Video) | ✅ Done | Pydantic schema + builder + 46 tests |
 | Rich error messages + progress bar | ✅ Done | DX package, 30 tests |
-| Multiple themes (neon, blueprint, light) | ⏳ Planned | — |
-| Rounded corner routing | ⏳ Planned | `corner_radius` param |
-| A* Pathfinding (obstacle-aware routing) | ⏳ Planned | Replace Lean Manhattan |
-| SharedMemory optimization (IPC) | ⏳ Planned | If IPC > 20% render time |
-| MkDocs documentation site | ⏳ Planned | PLAN-011 |
-| 5+ runnable examples | ⏳ Planned | Microservices, OAuth2, etc. |
+| Multiple themes (neon, blueprint, light) | ✅ Done | PLAN-012 — 3 new themes |
+| Rounded corner routing | ✅ Done | PLAN-012 — `conn_corner_radius` 12px default |
+| A* Pathfinding (obstacle-aware routing) | ✅ Done | PLAN-013 — Visibility graph A* router |
+| SharedMemory optimization (IPC) | ✅ Done | PLAN-014 — Ring buffer + zero-copy IPC |
+| MkDocs documentation site | ✅ Done | PLAN-011 — MkDocs Material + 4 pages |
+| 5+ runnable examples | ✅ Done | PLAN-011 — 6 examples total |
 
 **Tiêu chí hoàn thành v0.2.0:**
 - Tất cả tính năng v0.1.0 stable
@@ -76,10 +76,11 @@ v0.1.0 (MVP)          v0.2.0 (Polish)        v1.0.0 (Production)
 
 | Feature | Status | Ghi chú |
 |---|---|---|
-| WebGL / Lottie export | ⏳ Future | PLAN-012 |
+| WebGL / Lottie export | ✅ Done | PLAN-015 — Lottie JSON + minify |
 | Premium Icon Packs (AWS, GCP, K8s) | ⏳ Future | Open-Core Tier 1 |
 | Plugin system (custom primitives) | ⏳ Future | — |
-| Interactive HTML player | ⏳ Future | Self-contained embed |
+| Interactive HTML player | ✅ Done | PLAN-015 — lottie-web + controls |
+| Animated SVG export | ✅ Done | PLAN-015 — CSS @keyframes |
 | SaaS platform (ArchMotion Studio) | ⏳ Future | Open-Core Tier 3 |
 
 **Tiêu chí hoàn thành v1.0.0:**
@@ -107,21 +108,28 @@ PLAN-001 (POC)
                                   |
                                   +---> v0.1.0 RELEASE
                                             |
-                                  +---------+---------+
-                                  |         |         |
-                            PLAN-007   PLAN-008   PLAN-009
-                            (Prims)    (Anims)    (YAML AI)
-                                  |         |         |
-                                  +---------+---------+
-                                            |
-                                     v0.2.0 RELEASE
-                                            |
-                                      PLAN-012
-                                     (Web Export)
-                                            |
-                                     v1.0.0 RELEASE
+                                   +---------+---------+
+                                   |         |         |
+                             PLAN-007   PLAN-008   PLAN-009
+                             (Prims)    (Anims)    (YAML AI)
+                                   |         |         |
+                                   +---------+---------+
+                                             |
+                                   +---------+---------+
+                                   |         |         |
+                             PLAN-010   PLAN-011   PLAN-012
+                             (DX)      (Docs)     (Themes)
+                                   |         |         |
+                                   +---------+---------+
+                                             |
+                                      v0.2.0 RELEASE
+                                             |
+                                       PLAN-015
+                                      (Web Export)
+                                             |
+                                      v1.0.0 RELEASE
 ```
 
 ---
 
-*Cập nhật lần cuối: 2026-06-12*
+*Cập nhật lần cuối: 2026-06-13*

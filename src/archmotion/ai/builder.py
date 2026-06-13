@@ -211,7 +211,7 @@ def build_scene(spec: SceneSpec) -> Scene:
     Raises:
         ValueError: If any ID references cannot be resolved.
     """
-    scene = Scene(resolution=spec.resolution, fps=spec.fps)
+    scene = Scene(resolution=spec.resolution, fps=spec.fps, theme=spec.theme)
 
     # ── Phase 1: Create nodes (id → Node mapping) ──
     nodes: dict[str, Node] = {}
@@ -235,7 +235,12 @@ def build_scene(spec: SceneSpec) -> Scene:
     for conn_spec in spec.connections:
         src = nodes[conn_spec.source]
         tgt = nodes[conn_spec.target]
-        conn = Connection(source=src, target=tgt, label=conn_spec.label)
+        conn = Connection(
+            source=src,
+            target=tgt,
+            label=conn_spec.label,
+            corner_radius=conn_spec.corner_radius,
+        )
         connections[conn_spec.id] = conn
 
     # ── Phase 4: Execute choreography ──

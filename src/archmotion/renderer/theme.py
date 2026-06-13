@@ -1,8 +1,13 @@
 """Theme configuration — color palette, font settings, visual constants.
 
 Architectural Note:
-    MVP ships with a single theme: dark_terminal.
-    Theme system extensibility is deferred to v0.2.0.
+    v0.2.0 ships with 4 themes: dark_terminal (default), neon_cyber,
+    blueprint, and light_paper. Theme selection is exposed through
+    both the Python API (Scene constructor) and the YAML AI Interface.
+
+    ``conn_corner_radius`` controls the smoothness of Manhattan
+    routing corners. A value of 12.0px provides aesthetically
+    pleasing rounded turns; set to 0.0 for sharp 90° bends.
 """
 
 from __future__ import annotations
@@ -77,6 +82,9 @@ class ThemeConfig:
     # Effects
     glow_blur_radius: float = 20.0
 
+    # Connection Routing
+    conn_corner_radius: float = 12.0
+
 
 # ──────────────────────────────────────────────
 # Theme Registry
@@ -84,8 +92,80 @@ class ThemeConfig:
 
 THEMES: dict[str, ThemeConfig] = {
     "dark_terminal": ThemeConfig(),
+    "neon_cyber": ThemeConfig(
+        name="neon_cyber",
+        background_rgba=(0.03, 0.02, 0.06, 1.0),
+        node_fill="#0d0b18",
+        node_border="#ff007f",
+        node_border_width=2.5,
+        node_corner_radius=10.0,
+        node_shadow_color="#ff007f33",
+        node_shadow_offset=(0.0, 0.0),
+        node_shadow_blur=16.0,
+        db_fill="#0d0b18",
+        db_border="#00ffff",
+        conn_stroke="#00ffff",
+        conn_stroke_width=2.0,
+        conn_arrow_size=10.0,
+        font_family="Fira Code",
+        font_size=14.0,
+        font_color="#39ff14",
+        packet_size=12.0,
+        packet_color="#ff00ff",
+        packet_label_size=10.0,
+        glow_blur_radius=30.0,
+        conn_corner_radius=14.0,
+    ),
+    "blueprint": ThemeConfig(
+        name="blueprint",
+        background_rgba=(0.05, 0.14, 0.30, 1.0),
+        node_fill="#0a2240",
+        node_border="#ffffffbb",
+        node_border_width=1.5,
+        node_corner_radius=4.0,
+        node_shadow_color="#00000044",
+        node_shadow_offset=(2.0, 2.0),
+        node_shadow_blur=4.0,
+        db_fill="#0a2240",
+        db_border="#ffffff88",
+        conn_stroke="#ffffff88",
+        conn_stroke_width=1.5,
+        conn_arrow_size=9.0,
+        font_family="Fira Code",
+        font_size=13.0,
+        font_color="#e2e8f0",
+        packet_size=10.0,
+        packet_color="#63b3ed",
+        packet_label_size=9.0,
+        glow_blur_radius=16.0,
+        conn_corner_radius=8.0,
+    ),
+    "light_paper": ThemeConfig(
+        name="light_paper",
+        background_rgba=(0.98, 0.98, 0.96, 1.0),
+        node_fill="#ffffff",
+        node_border="#2d3748",
+        node_border_width=1.5,
+        node_corner_radius=6.0,
+        node_shadow_color="#00000018",
+        node_shadow_offset=(3.0, 3.0),
+        node_shadow_blur=6.0,
+        db_fill="#f7fafc",
+        db_border="#2d3748",
+        conn_stroke="#4a5568",
+        conn_stroke_width=1.5,
+        conn_arrow_size=9.0,
+        font_family="Fira Code",
+        font_size=14.0,
+        font_color="#1a202c",
+        packet_size=12.0,
+        packet_color="#3182ce",
+        packet_label_size=10.0,
+        glow_blur_radius=12.0,
+        conn_corner_radius=10.0,
+    ),
 }
-"""Available themes. MVP: only dark_terminal."""
+"""Available themes. v0.2.0: dark_terminal, neon_cyber, blueprint, light_paper."""
 
 
 def get_theme(name: str) -> ThemeConfig:

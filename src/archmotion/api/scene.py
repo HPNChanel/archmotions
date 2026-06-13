@@ -288,6 +288,101 @@ class Scene:
 
         return result.output_path
 
+    def export(
+        self,
+        output_file: str,
+        *,
+        minify: bool = False,
+        title: str = "ArchMotion Animation",
+    ) -> Path:
+        """Export scene to Lottie JSON, SVG, or HTML format.
+
+        Format is auto-detected from file extension:
+            - ``.json`` → Lottie bodymovin JSON
+            - ``.svg``  → Animated SVG with CSS animations
+            - ``.html`` → Interactive HTML player with lottie-web
+
+        For MP4 video export, use :meth:`render` instead.
+
+        Args:
+            output_file: Output file path (extension determines format).
+            minify: Minify JSON output (Lottie only).
+            title: HTML page title (HTML player only).
+
+        Returns:
+            Path to the created file.
+
+        Raises:
+            ValueError: If file extension is not supported.
+            EmptyTimelineError: If no animations were recorded.
+        """
+        if not self._play_calls:
+            raise EmptyTimelineError()
+
+        output_path = Path(output_file)
+        ext = output_path.suffix.lower()
+
+        # Validate extension
+        supported = {".json", ".svg", ".html", ".htm"}
+        if ext not in supported:
+            msg = (
+                f"Unsupported export format '{ext}'. "
+                f"Use .json (Lottie), .svg, or .html. "
+                f"For MP4, use scene.render() instead."
+            )
+            raise ValueError(msg)
+
+        # Run phases 1-3
+        all_nodes, all_connections = self._collect_topology()
+
+        layout = resolve_layout(
+            nodes=all_nodes,
+            connections=all_connections,
+            canvas_width=self._canvas_width,
+            canvas_height=self._canvas_height,
+        )
+
+        timeline = compile_timeline(
+            play_calls=self._play_calls,
+            total_duration=self._current_time,
+            fps=self._fps,
+        )
+
+        theme = get_theme(self._theme)
+        node_labels = {n.id: n.label for n in all_nodes}
+        node_types = {n.id: n.primitive_type for n in all_nodes}
+        conn_labels: dict[str, str | None] = {
+            c.id: c.label for c in all_connections
+        }
+
+        # Route to exporter
+        if ext == ".json":
+            from archmotion.exporter.lottie import export_lottie
+
+            return export_lottie(
+                timeline=timeline, layout=layout, theme=theme,
+                node_labels=node_labels, node_types=node_types,
+                connection_labels=conn_labels, output_path=output_path,
+                minify=minify,
+            )
+        elif ext == ".svg":
+            from archmotion.exporter.html_player import export_svg
+
+            return export_svg(
+                timeline=timeline, layout=layout, theme=theme,
+                node_labels=node_labels, node_types=node_types,
+                connection_labels=conn_labels, output_path=output_path,
+            )
+        else:  # .html / .htm
+            from archmotion.exporter.html_player import export_html_player
+
+            return export_html_player(
+                timeline=timeline, layout=layout, theme=theme,
+                node_labels=node_labels, node_types=node_types,
+                connection_labels=conn_labels, output_path=output_path,
+                title=title,
+            )
+
     # ──────────────────────────────────────────
     # Internal: Topology Discovery
     # ──────────────────────────────────────────
