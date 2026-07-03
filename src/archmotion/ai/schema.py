@@ -24,14 +24,14 @@ from archmotion.constants import (
     MAX_LABEL_LENGTH,
     MAX_NODES,
     MAX_PAYLOAD_LENGTH,
+    RESOLUTION_MAP,
 )
-
 
 # ──────────────────────────────────────────────
 # Position Spec
 # ──────────────────────────────────────────────
 
-class PositionSpec(BaseModel):
+class RelativePositionSpec(BaseModel):
     """Relative positioning for a node.
 
     Attributes:
@@ -43,6 +43,27 @@ class PositionSpec(BaseModel):
     anchor: str = Field(..., min_length=1, max_length=50)
     direction: Literal["right_of", "left_of", "above", "below"]
     distance: float = Field(default=3.0, ge=1.0, le=20.0)
+
+
+class AbsolutePositionSpec(BaseModel):
+    """Absolute (freeform) pixel positioning for a node.
+
+    Used by the ArchMotion Studio visual editor. The coordinate origin is the
+    top-left of the canvas (y grows downward), matching the SVG/Canvas space.
+    The upper bound is validated against the scene resolution in ``SceneSpec``.
+
+    Attributes:
+        x: Left edge X coordinate in pixels (>= 0).
+        y: Top edge Y coordinate in pixels (>= 0).
+    """
+
+    x: float = Field(..., ge=0.0)
+    y: float = Field(..., ge=0.0)
+
+
+# Union of supported position specs. Kept under the historical ``PositionSpec``
+# name for backward compatibility (existing imports + YAML docs).
+PositionSpec = RelativePositionSpec | AbsolutePositionSpec
 
 
 # ──────────────────────────────────────────────
@@ -60,7 +81,8 @@ class NodeSpec(BaseModel):
         label: Display text inside the node.
         type: Rendering shape type.
         provider: Cloud provider (only for type='cloud').
-        position: Optional relative positioning.
+        position: Optional positioning — relative (anchor/direction/distance)
+            or absolute (x/y pixels).
     """
 
     id: str = Field(..., min_length=1, max_length=50)
@@ -102,7 +124,7 @@ class ConnectionSpec(BaseModel):
     corner_radius: float | None = Field(default=None, ge=0.0, le=50.0)
 
     @model_validator(mode="after")
-    def no_self_loop(self) -> "ConnectionSpec":
+    def no_self_loop(self) -> ConnectionSpec:
         """Connections cannot point to themselves."""
         if self.source == self.target:
             msg = f"Self-loop not allowed: source and target are both '{self.source}'"
@@ -183,7 +205,7 @@ class StepSpec(BaseModel):
     duration: float | None = Field(default=None, ge=0.1, le=60.0)
 
     @model_validator(mode="after")
-    def validate_action_fields(self) -> "StepSpec":
+    def validate_action_fields(self) -> StepSpec:
         """Ensure correct fields are set for each action type."""
         if self.action == "play" and self.animation is None:
             msg = "action='play' requires 'animation' field"
@@ -225,7 +247,7 @@ class SceneSpec(BaseModel):
     choreography: list[StepSpec] = Field(..., min_length=1)
 
     @model_validator(mode="after")
-    def validate_limits(self) -> "SceneSpec":
+    def validate_limits(self) -> SceneSpec:
         """Enforce security limits on node/connection counts."""
         if len(self.nodes) > MAX_NODES:
             msg = f"Too many nodes: {len(self.nodes)} (max {MAX_NODES})"
@@ -236,7 +258,7 @@ class SceneSpec(BaseModel):
         return self
 
     @model_validator(mode="after")
-    def validate_unique_ids(self) -> "SceneSpec":
+    def validate_unique_ids(self) -> SceneSpec:
         """Ensure all node and connection IDs are unique."""
         node_ids = [n.id for n in self.nodes]
         if len(node_ids) != len(set(node_ids)):
@@ -252,7 +274,7 @@ class SceneSpec(BaseModel):
         return self
 
     @model_validator(mode="after")
-    def validate_references(self) -> "SceneSpec":
+    def validate_references(self) -> SceneSpec:
         """Ensure all referenced IDs exist."""
         node_ids = {n.id for n in self.nodes}
         conn_ids = {c.id for c in self.connections}
@@ -266,10 +288,16 @@ class SceneSpec(BaseModel):
                 msg = f"Connection '{conn.id}' references unknown target node '{conn.target}'"
                 raise ValueError(msg)
 
-        # Position anchors must reference existing nodes
+        # Position anchors must reference existing nodes (relative positions only).
+        # Absolute positions carry no anchor reference.
         for node in self.nodes:
-            if node.position and node.position.anchor not in node_ids:
-                msg = f"Node '{node.id}' position references unknown anchor '{node.position.anchor}'"
+            if isinstance(node.position, RelativePositionSpec) and (
+                node.position.anchor not in node_ids
+            ):
+                msg = (
+                    f"Node '{node.id}' position references unknown anchor "
+                    f"'{node.position.anchor}'"
+                )
                 raise ValueError(msg)
 
         # Animation targets must reference existing nodes/connections
@@ -296,4 +324,25 @@ class SceneSpec(BaseModel):
                         if ref not in conn_ids:
                             msg = f"Animation references unknown connection '{ref}'"
                             raise ValueError(msg)
+        return self
+
+    @model_validator(mode="after")
+    def validate_absolute_positions(self) -> SceneSpec:
+        """Ensure absolute positions fit within the scene's canvas bounds.
+
+        Absolute coordinates denote a node's top-left corner; they must leave
+        room for the (estimated) node size, so the upper bound uses the full
+        canvas dimension as a hard limit.
+        """
+        canvas_w, canvas_h = RESOLUTION_MAP[self.resolution]
+        for node in self.nodes:
+            if isinstance(node.position, AbsolutePositionSpec) and (
+                node.position.x > canvas_w or node.position.y > canvas_h
+            ):
+                msg = (
+                    f"Node '{node.id}' absolute position "
+                    f"({node.position.x}, {node.position.y}) exceeds canvas "
+                    f"bounds ({canvas_w}x{canvas_h})"
+                )
+                raise ValueError(msg)
         return self

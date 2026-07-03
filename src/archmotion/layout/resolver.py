@@ -22,11 +22,11 @@ Architectural Note:
 from __future__ import annotations
 
 from collections import defaultdict, deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from archmotion._types import Direction, Point
 from archmotion.api.connections import Connection
-from archmotion.api.primitives import Node
+from archmotion.api.primitives import AbsolutePosition, Node
 from archmotion.constants import GRID_UNIT
 from archmotion.errors import (
     CircularReferenceError,
@@ -36,7 +36,6 @@ from archmotion.errors import (
 )
 from archmotion.layout.bbox import BoundingBox, estimate_text_bbox
 from archmotion.layout.router import manhattan_route
-
 
 # ──────────────────────────────────────────────
 # Output Data Structure
@@ -189,8 +188,11 @@ def _topological_sort(
 ) -> list[str]:
     """Topological sort of nodes based on position dependencies.
 
-    A node's position depends on its anchor. Root nodes (no position)
-    have no dependencies and are processed first.
+    A node's position depends on its anchor (relative positioning). Root
+    nodes have no dependencies and are processed first:
+        - Unpositioned nodes (no ``position``): auto-placed side by side.
+        - Absolutely-positioned nodes (``AbsolutePosition``): fixed pixel
+          coordinates, no anchor dependency.
 
     Uses Kahn's algorithm: O(N + E).
 
@@ -214,11 +216,14 @@ def _topological_sort(
     positioned_count = 0
 
     for node in nodes:
-        if node.position is None:
+        pos = node.position
+        if pos is None or isinstance(pos, AbsolutePosition):
+            # Root: either unpositioned (auto-placed) or absolutely positioned
+            # (fixed coordinate, no anchor dependency).
             root_count += 1
         else:
             positioned_count += 1
-            anchor_id = node.position.anchor_id
+            anchor_id = pos.anchor_id
 
             if anchor_id not in layout_nodes:
                 raise OrphanNodeError(node.label)
@@ -307,14 +312,25 @@ def _assign_coordinates(
 
     The offset includes both the grid distance AND the half-widths/heights
     of the anchor and child nodes (edge-to-edge spacing, not center-to-center).
+
+    Absolutely-positioned nodes (``AbsolutePosition``) skip the DAG walk
+    entirely: their center is derived directly from the user-specified
+    top-left ``(x, y)`` plus half the estimated bounding box.
     """
     root_offset_x = 0.0
 
     for nid in sorted_ids:
         ln = layout_nodes[nid]
         node = ln.node
+        pos = node.position
 
-        if node.position is None:
+        if isinstance(pos, AbsolutePosition):
+            # Absolute: derive center from user top-left + half box size.
+            ln.center_x = pos.x + ln.bbox_width / 2
+            ln.center_y = pos.y + ln.bbox_height / 2
+            continue
+
+        if pos is None:
             # Root node: place at accumulated horizontal offset
             ln.center_x = root_offset_x
             ln.center_y = 0.0
@@ -322,10 +338,10 @@ def _assign_coordinates(
             root_offset_x += ln.bbox_width + GRID_UNIT
             continue
 
-        # Positioned node: compute offset from anchor
-        anchor_ln = layout_nodes[node.position.anchor_id]
-        direction = node.position.direction
-        distance_px = node.position.distance * GRID_UNIT
+        # Relative positioned node: compute offset from anchor
+        anchor_ln = layout_nodes[pos.anchor_id]
+        direction = pos.direction
+        distance_px = pos.distance * GRID_UNIT
 
         dx_unit, dy_unit = _DIRECTION_OFFSETS[direction]
 
@@ -355,8 +371,16 @@ def _center_on_canvas(
 
     Computes the bounding rectangle of all node centers, then applies
     an offset to center that rectangle on the canvas.
+
+    Skipped entirely when ANY node is absolutely positioned: absolute
+    positioning signals manual layout control, so auto-centering would
+    move user-placed nodes away from their intended coordinates.
     """
     if not layout_nodes:
+        return
+
+    if any(isinstance(ln.node.position, AbsolutePosition) for ln in layout_nodes.values()):
+        # Manual layout mode — respect user-specified coordinates verbatim.
         return
 
     # Find extent of all nodes (using center +/- half_size)

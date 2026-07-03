@@ -65,7 +65,7 @@ class TestNode:
     def test_double_positioning_raises(self):
         anchor = Node("A")
         child = Node("B").right_of(anchor)
-        with pytest.raises(TopologyError, match="already has a position"):
+        with pytest.raises(TopologyError, match="already has a relative position"):
             child.below(anchor)
 
     def test_chaining_returns_self(self):

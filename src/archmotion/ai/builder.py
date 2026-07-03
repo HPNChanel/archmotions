@@ -19,11 +19,10 @@ Security:
 from __future__ import annotations
 
 from archmotion.ai.schema import (
+    AbsolutePositionSpec,
     AnimationSpec,
-    ConnectionSpec,
     NodeSpec,
     SceneSpec,
-    StepSpec,
 )
 from archmotion.api.connections import Connection
 from archmotion.api.primitives import Cache, Cloud, Database, Node, Queue, User
@@ -38,7 +37,6 @@ from archmotion.motions._animations import (
     ScaleUp,
     Transfer,
 )
-
 
 # ──────────────────────────────────────────────
 # Node Factory
@@ -219,12 +217,18 @@ def build_scene(spec: SceneSpec) -> Scene:
         node = _create_node(node_spec)
         nodes[node_spec.id] = node
 
-    # ── Phase 2: Set relative positions ──
+    # ── Phase 2: Set positions (relative or absolute) ──
     for node_spec in spec.nodes:
         if node_spec.position is None:
             continue
 
         node = nodes[node_spec.id]
+
+        if isinstance(node_spec.position, AbsolutePositionSpec):
+            # Freeform absolute placement (e.g. from the visual editor).
+            node.at(node_spec.position.x, node_spec.position.y)
+            continue
+
         anchor = nodes[node_spec.position.anchor]
         method_name = _DIRECTION_METHODS[node_spec.position.direction]
         method = getattr(node, method_name)
@@ -242,6 +246,14 @@ def build_scene(spec: SceneSpec) -> Scene:
             corner_radius=conn_spec.corner_radius,
         )
         connections[conn_spec.id] = conn
+
+    # Explicitly register every node + connection on the Scene so the full
+    # topology is available even before/without animations (e.g. so the visual
+    # editor can call Scene.resolve() to read all node bounding boxes).
+    for node in nodes.values():
+        scene.add_node(node)
+    for conn in connections.values():
+        scene.add_connection(conn)
 
     # ── Phase 4: Execute choreography ──
     for step in spec.choreography:

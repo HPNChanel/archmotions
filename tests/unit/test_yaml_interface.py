@@ -19,10 +19,12 @@ from pydantic import ValidationError
 from archmotion.ai import YAMLParseError, parse_yaml_string
 from archmotion.ai.builder import build_scene
 from archmotion.ai.schema import (
+    AbsolutePositionSpec,
     AnimationSpec,
     ConnectionSpec,
     NodeSpec,
     PositionSpec,
+    RelativePositionSpec,
     SceneSpec,
     StepSpec,
 )
@@ -154,9 +156,14 @@ class TestSchemaValidInputs:
         assert len(spec.nodes) == 6
 
     def test_position_spec(self):
-        pos = PositionSpec(anchor="other", direction="right_of", distance=5.0)
+        pos = RelativePositionSpec(anchor="other", direction="right_of", distance=5.0)
         assert pos.direction == "right_of"
         assert pos.distance == 5.0
+
+    def test_absolute_position_spec(self):
+        pos = AbsolutePositionSpec(x=120.0, y=80.0)
+        assert pos.x == 120.0
+        assert pos.y == 80.0
 
     def test_connection_spec(self):
         conn = ConnectionSpec(id="c1", source="a", target="b", label="HTTP")
@@ -236,7 +243,7 @@ class TestSchemaInvalidInputs:
                 nodes=[
                     NodeSpec(
                         id="s", label="A",
-                        position=PositionSpec(anchor="nonexistent", direction="below"),
+                        position=RelativePositionSpec(anchor="nonexistent", direction="below"),
                     ),
                 ],
                 choreography=[
@@ -316,7 +323,7 @@ class TestBuilderNodes:
                 NodeSpec(id="a", label="Node A"),
                 NodeSpec(
                     id="b", label="Node B",
-                    position=PositionSpec(anchor="a", direction="right_of", distance=3),
+                    position=RelativePositionSpec(anchor="a", direction="right_of", distance=3),
                 ),
             ],
             choreography=[

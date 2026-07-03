@@ -18,16 +18,13 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
 
 from archmotion._types import AnimatableProperty, PrimitiveType
-from archmotion.layout.bbox import BoundingBox
+from archmotion.exporter.lottie import build_lottie_json
 from archmotion.layout.resolver import ResolvedLayout
 from archmotion.renderer.theme import ThemeConfig
 from archmotion.timeline.actions import ScheduledAction
 from archmotion.timeline.compiler import CompiledTimeline
-from archmotion.exporter.lottie import build_lottie_json
-
 
 # ──────────────────────────────────────────────
 # HTML Player Template
@@ -387,6 +384,71 @@ def build_animated_svg(
 # ──────────────────────────────────────────────
 
 
+def build_html_player(
+    timeline: CompiledTimeline,
+    layout: ResolvedLayout,
+    theme: ThemeConfig,
+    node_labels: dict[str, str],
+    node_types: dict[str, PrimitiveType],
+    connection_labels: dict[str, str | None],
+    title: str = "ArchMotion Animation",
+) -> str:
+    """Build a self-contained interactive HTML player string (in-memory).
+
+    Identical output to :func:`export_html_player`, but returns the HTML
+    string instead of writing to disk. Used by the in-memory export API
+    (``Scene.to_html()``) and by Pyodide where filesystem I/O is undesirable.
+
+    Args:
+        timeline: Compiled timeline from Phase 3.
+        layout: Resolved layout from Phase 2.
+        theme: Visual theme configuration.
+        node_labels: Node ID → label mapping.
+        node_types: Node ID → PrimitiveType mapping.
+        connection_labels: Connection ID → label mapping.
+        title: HTML page title.
+
+    Returns:
+        A fully self-contained HTML string with embedded Lottie data,
+        lottie-web player, and interactive controls.
+    """
+    # Build Lottie JSON
+    lottie_data = build_lottie_json(
+        timeline=timeline,
+        layout=layout,
+        theme=theme,
+        node_labels=node_labels,
+        node_types=node_types,
+        connection_labels=connection_labels,
+    )
+
+    # Theme-aware colors for the player UI
+    bg = theme.background_rgba
+    bg_css = f"rgb({int(bg[0]*255)},{int(bg[1]*255)},{int(bg[2]*255)})"
+    text_css = theme.font_color
+    accent_css = theme.node_border
+    surface_r = min(bg[0] + 0.05, 1.0)
+    surface_g = min(bg[1] + 0.05, 1.0)
+    surface_b = min(bg[2] + 0.05, 1.0)
+    surface_css = f"rgb({int(surface_r*255)},{int(surface_g*255)},{int(surface_b*255)})"
+
+    duration = f"{timeline.total_duration:.1f}"
+
+    return _HTML_TEMPLATE.format(
+        title=title,
+        bg_color=bg_css,
+        text_color=text_css,
+        accent_color=accent_css,
+        surface_color=surface_css,
+        canvas_width=layout.canvas_width,
+        canvas_height=layout.canvas_height,
+        lottie_json=json.dumps(lottie_data),
+        total_frames=timeline.total_frames,
+        fps=timeline.fps,
+        duration=duration,
+    )
+
+
 def export_html_player(
     timeline: CompiledTimeline,
     layout: ResolvedLayout,
@@ -418,40 +480,14 @@ def export_html_player(
     Returns:
         Path to the created HTML file.
     """
-    # Build Lottie JSON
-    lottie_data = build_lottie_json(
+    html = build_html_player(
         timeline=timeline,
         layout=layout,
         theme=theme,
         node_labels=node_labels,
         node_types=node_types,
         connection_labels=connection_labels,
-    )
-
-    # Theme-aware colors for the player UI
-    bg = theme.background_rgba
-    bg_css = f"rgb({int(bg[0]*255)},{int(bg[1]*255)},{int(bg[2]*255)})"
-    text_css = theme.font_color
-    accent_css = theme.node_border
-    surface_r = min(bg[0] + 0.05, 1.0)
-    surface_g = min(bg[1] + 0.05, 1.0)
-    surface_b = min(bg[2] + 0.05, 1.0)
-    surface_css = f"rgb({int(surface_r*255)},{int(surface_g*255)},{int(surface_b*255)})"
-
-    duration = f"{timeline.total_duration:.1f}"
-
-    html = _HTML_TEMPLATE.format(
         title=title,
-        bg_color=bg_css,
-        text_color=text_css,
-        accent_color=accent_css,
-        surface_color=surface_css,
-        canvas_width=layout.canvas_width,
-        canvas_height=layout.canvas_height,
-        lottie_json=json.dumps(lottie_data),
-        total_frames=timeline.total_frames,
-        fps=timeline.fps,
-        duration=duration,
     )
 
     output_path.parent.mkdir(parents=True, exist_ok=True)

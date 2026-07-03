@@ -43,6 +43,24 @@ class RelativePosition:
 
 
 @dataclass
+class AbsolutePosition:
+    """Records an absolute (freeform) pixel position for a node.
+
+    Used by the visual editor (ArchMotion Studio) where nodes are placed by
+    dragging rather than relative to an anchor. The coordinate origin is the
+    top-left corner of the canvas (y grows downward), matching the SVG/Canvas
+    coordinate space used throughout the layout + render pipeline.
+
+    Attributes:
+        x: Left edge X coordinate (pixels).
+        y: Top edge Y coordinate (pixels).
+    """
+
+    x: float
+    y: float
+
+
+@dataclass
 class Node:
     """A rectangular box representing a server, service, or component.
 
@@ -62,7 +80,9 @@ class Node:
     icon: str | None = None
     id: str = field(default_factory=lambda: uuid.uuid4().hex[:8])
     primitive_type: PrimitiveType = field(default=PrimitiveType.NODE, init=False)
-    position: RelativePosition | None = field(default=None, init=False, repr=False)
+    position: RelativePosition | AbsolutePosition | None = field(
+        default=None, init=False, repr=False,
+    )
     z_index: int = field(default=Z_NODE, init=False)
 
     def __post_init__(self) -> None:
@@ -75,15 +95,35 @@ class Node:
             msg = f"Node label exceeds {MAX_LABEL_LENGTH} characters: '{self.label[:20]}...'"
             raise ValueError(msg)
 
-    def _set_position(self, anchor: Node, direction: Direction, distance: float) -> Self:
-        """Internal: set relative position. Raises if already positioned."""
+    def _ensure_unpositioned(self, *, attempting: str) -> None:
+        """Raise TopologyError if this node already has a position.
+
+        Args:
+            attempting: Human-readable description of the positioning call
+                (e.g. ``'at()'``, ``'right_of()'``) for the error message.
+
+        Raises:
+            TopologyError: If a position has already been assigned.
+        """
         if self.position is not None:
+            if isinstance(self.position, AbsolutePosition):
+                existing = (
+                    f"absolute position ({self.position.x:.0f}, {self.position.y:.0f})"
+                )
+            else:
+                existing = (
+                    f"relative position (anchor '{self.position.anchor_id}', "
+                    f"{self.position.direction.name.lower()})"
+                )
             msg = (
-                f"Node '{self.label}' already has a position "
-                f"(relative to '{self.position.anchor_id}'). "
-                "Each Node can only be positioned once."
+                f"Node '{self.label}' already has a {existing}. "
+                f"Each Node can only be positioned once (cannot call {attempting})."
             )
             raise TopologyError(msg)
+
+    def _set_position(self, anchor: Node, direction: Direction, distance: float) -> Self:
+        """Internal: set relative position. Raises if already positioned."""
+        self._ensure_unpositioned(attempting=f"{direction.name.lower()}()")
         if not MIN_DISTANCE <= distance <= MAX_DISTANCE:
             msg = f"Distance must be between {MIN_DISTANCE} and {MAX_DISTANCE}, got {distance}"
             raise ValueError(msg)
@@ -92,6 +132,36 @@ class Node:
             direction=direction,
             distance=distance,
         )
+        return self
+
+    def at(self, x: float, y: float) -> Self:
+        """Position this node at an absolute pixel coordinate.
+
+        The coordinate origin is the top-left of the canvas (y grows
+        downward), identical to the SVG/Canvas space. ``x``/``y`` denote the
+        node's top-left corner; the Layout Resolver derives the center from
+        the node's estimated bounding box.
+
+        Absolute positioning is mutually exclusive with the relative fluent
+        API (``.right_of()`` / ``.below()`` / ...): a node may be positioned
+        only once.
+
+        Args:
+            x: Left edge X coordinate in pixels (>= 0).
+            y: Top edge Y coordinate in pixels (>= 0).
+
+        Returns:
+            Self for method chaining.
+
+        Raises:
+            TopologyError: If this node already has a position.
+            ValueError: If ``x`` or ``y`` is negative.
+        """
+        if x < 0 or y < 0:
+            msg = f"Absolute position must be non-negative, got ({x}, {y})"
+            raise ValueError(msg)
+        self._ensure_unpositioned(attempting="at()")
+        self.position = AbsolutePosition(x=float(x), y=float(y))
         return self
 
     def right_of(self, anchor: Node, distance: float = DEFAULT_DISTANCE) -> Self:

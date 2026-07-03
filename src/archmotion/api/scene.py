@@ -14,20 +14,39 @@ Architectural Note:
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Iterator, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from archmotion.constants import DEFAULT_FPS, DEFAULT_RESOLUTION, RESOLUTION_MAP
 from archmotion.errors import EmptyTimelineError, TimelineError
-from archmotion.exporter.pool import export_video
-from archmotion.layout.resolver import resolve_layout
-from archmotion.renderer.theme import get_theme
-from archmotion.timeline.compiler import compile_timeline
+from archmotion.layout.resolver import ResolvedLayout, resolve_layout
+from archmotion.renderer.theme import ThemeConfig, get_theme
+from archmotion.timeline.compiler import CompiledTimeline, compile_timeline
 
 if TYPE_CHECKING:
     from archmotion.api.connections import Connection
     from archmotion.api.primitives import Node
+
+
+@dataclass(frozen=True)
+class _CompiledScene:
+    """In-memory result of Phases 1-3, ready to feed any exporter.
+
+    Bundles the resolved layout, compiled timeline, theme, and the label/type
+    metadata the exporters need. Used by the in-memory export helpers so they
+    share a single compile pass (and avoid filesystem I/O — important for
+    Pyodide and for ``Scene.to_*()``).
+    """
+
+    layout: ResolvedLayout
+    timeline: CompiledTimeline
+    theme: ThemeConfig
+    node_labels: dict[str, str]
+    node_types: dict[Any, Any]
+    conn_labels: dict[str, str | None]
 
 
 class Scene:
@@ -227,6 +246,10 @@ class Scene:
         if not self._play_calls:
             raise EmptyTimelineError()
 
+        # Lazy import: export_video pulls in the skia-dependent render pool.
+        # Importing here (not at module top) keeps Scene importable without skia.
+        from archmotion.exporter.pool import export_video
+
         # Ensure .mp4 extension
         if not output_file.endswith(".mp4"):
             output_file += ".mp4"
@@ -332,7 +355,186 @@ class Scene:
             )
             raise ValueError(msg)
 
-        # Run phases 1-3
+        compiled = self._compile()
+
+        # Route to exporter
+        if ext == ".json":
+            from archmotion.exporter.lottie import export_lottie
+
+            return export_lottie(
+                timeline=compiled.timeline, layout=compiled.layout, theme=compiled.theme,
+                node_labels=compiled.node_labels, node_types=compiled.node_types,
+                connection_labels=compiled.conn_labels, output_path=output_path,
+                minify=minify,
+            )
+        elif ext == ".svg":
+            from archmotion.exporter.html_player import export_svg
+
+            return export_svg(
+                timeline=compiled.timeline, layout=compiled.layout, theme=compiled.theme,
+                node_labels=compiled.node_labels, node_types=compiled.node_types,
+                connection_labels=compiled.conn_labels, output_path=output_path,
+            )
+        else:  # .html / .htm
+            from archmotion.exporter.html_player import export_html_player
+
+            return export_html_player(
+                timeline=compiled.timeline, layout=compiled.layout, theme=compiled.theme,
+                node_labels=compiled.node_labels, node_types=compiled.node_types,
+                connection_labels=compiled.conn_labels, output_path=output_path,
+                title=title,
+            )
+
+    # ──────────────────────────────────────────
+    # In-Memory Export (no filesystem I/O — Pyodide / Studio friendly)
+    # ──────────────────────────────────────────
+
+    def resolve(self) -> ResolvedLayout:
+        """Run Phases 1-2 and return the resolved layout (node boxes + routes).
+
+        Unlike :meth:`to_lottie` and friends, this does NOT require any recorded
+        animations — it resolves topology positions only. Useful for reading
+        node bounding boxes (e.g. the visual editor) before choreography exists.
+
+        Returns:
+            ResolvedLayout with absolute BoundingBoxes and connection routes.
+        """
+        all_nodes, all_connections = self._collect_topology()
+        return resolve_layout(
+            nodes=all_nodes,
+            connections=all_connections,
+            canvas_width=self._canvas_width,
+            canvas_height=self._canvas_height,
+        )
+
+    def to_lottie(self, *, minify: bool = False) -> dict[str, Any]:
+        """Build the Lottie bodymovin JSON as an in-memory dict (no file I/O).
+
+        Args:
+            minify: If True, callers may serialize with compact separators.
+
+        Returns:
+            Lottie JSON as a Python dict ready for ``json.dumps``.
+
+        Raises:
+            EmptyTimelineError: If no animations were recorded.
+        """
+        from archmotion.exporter.lottie import build_lottie_json
+
+        c = self._compile()
+        return build_lottie_json(
+            timeline=c.timeline, layout=c.layout, theme=c.theme,
+            node_labels=c.node_labels, node_types=c.node_types,
+            connection_labels=c.conn_labels,
+        )
+
+    def to_svg(self) -> str:
+        """Build the animated SVG as an in-memory string (no file I/O).
+
+        Returns:
+            SVG string with embedded CSS animations.
+
+        Raises:
+            EmptyTimelineError: If no animations were recorded.
+        """
+        from archmotion.exporter.html_player import build_animated_svg
+
+        c = self._compile()
+        return build_animated_svg(
+            timeline=c.timeline, layout=c.layout, theme=c.theme,
+            node_labels=c.node_labels, node_types=c.node_types,
+            connection_labels=c.conn_labels,
+        )
+
+    def to_html(self, *, title: str = "ArchMotion Animation") -> str:
+        """Build the interactive HTML player as an in-memory string (no file I/O).
+
+        Args:
+            title: HTML page title.
+
+        Returns:
+            Self-contained HTML string with embedded Lottie data + controls.
+
+        Raises:
+            EmptyTimelineError: If no animations were recorded.
+        """
+        from archmotion.exporter.html_player import build_html_player
+
+        c = self._compile()
+        return build_html_player(
+            timeline=c.timeline, layout=c.layout, theme=c.theme,
+            node_labels=c.node_labels, node_types=c.node_types,
+            connection_labels=c.conn_labels, title=title,
+        )
+
+    def to_layout_dict(self) -> dict[str, Any]:
+        """Return resolved layout + node/connection metadata as plain dicts.
+
+        Works without recorded animations (topology only). Returns fully
+        JSON-serializable data so it crosses the Pyodide Python↔JS boundary
+        cleanly. This is the single authoritative source the ArchMotion Studio
+        canvas uses to render nodes at their resolved pixel boxes with labels,
+        primitive types, and routed connection polylines.
+
+        Returns:
+            Dict with ``canvas`` [w, h], ``nodes`` {id: {label, type, x, y,
+            w, h}}, and ``connections`` {id: {source, target, label, route}}.
+        """
+        all_nodes, all_connections = self._collect_topology()
+        layout = resolve_layout(
+            nodes=all_nodes,
+            connections=all_connections,
+            canvas_width=self._canvas_width,
+            canvas_height=self._canvas_height,
+        )
+
+        nodes_out: dict[str, Any] = {}
+        for node in all_nodes:
+            box = layout.node_boxes.get(node.id)
+            if box is None:
+                continue
+            nodes_out[node.id] = {
+                "label": node.label,
+                "type": node.primitive_type.name.lower(),
+                "x": box.x,
+                "y": box.y,
+                "w": box.width,
+                "h": box.height,
+            }
+
+        conns_out: dict[str, Any] = {}
+        for conn in all_connections:
+            route = layout.connection_routes.get(conn.id, [])
+            conns_out[conn.id] = {
+                "source": conn.source.id,
+                "target": conn.target.id,
+                "label": conn.label,
+                "route": [[float(p[0]), float(p[1])] for p in route],
+            }
+
+        return {
+            "canvas": [layout.canvas_width, layout.canvas_height],
+            "nodes": nodes_out,
+            "connections": conns_out,
+        }
+
+    # ──────────────────────────────────────────
+    # Internal: Compile (Phases 1-3)
+    # ──────────────────────────────────────────
+
+    def _compile(self) -> _CompiledScene:
+        """Run Phases 1-3 and bundle the result for any exporter.
+
+        Returns:
+            _CompiledScene with resolved layout, compiled timeline, theme, and
+            label/type metadata.
+
+        Raises:
+            EmptyTimelineError: If no animations were recorded.
+        """
+        if not self._play_calls:
+            raise EmptyTimelineError()
+
         all_nodes, all_connections = self._collect_topology()
 
         layout = resolve_layout(
@@ -348,40 +550,14 @@ class Scene:
             fps=self._fps,
         )
 
-        theme = get_theme(self._theme)
-        node_labels = {n.id: n.label for n in all_nodes}
-        node_types = {n.id: n.primitive_type for n in all_nodes}
-        conn_labels: dict[str, str | None] = {
-            c.id: c.label for c in all_connections
-        }
-
-        # Route to exporter
-        if ext == ".json":
-            from archmotion.exporter.lottie import export_lottie
-
-            return export_lottie(
-                timeline=timeline, layout=layout, theme=theme,
-                node_labels=node_labels, node_types=node_types,
-                connection_labels=conn_labels, output_path=output_path,
-                minify=minify,
-            )
-        elif ext == ".svg":
-            from archmotion.exporter.html_player import export_svg
-
-            return export_svg(
-                timeline=timeline, layout=layout, theme=theme,
-                node_labels=node_labels, node_types=node_types,
-                connection_labels=conn_labels, output_path=output_path,
-            )
-        else:  # .html / .htm
-            from archmotion.exporter.html_player import export_html_player
-
-            return export_html_player(
-                timeline=timeline, layout=layout, theme=theme,
-                node_labels=node_labels, node_types=node_types,
-                connection_labels=conn_labels, output_path=output_path,
-                title=title,
-            )
+        return _CompiledScene(
+            layout=layout,
+            timeline=timeline,
+            theme=get_theme(self._theme),
+            node_labels={n.id: n.label for n in all_nodes},
+            node_types={n.id: n.primitive_type for n in all_nodes},
+            conn_labels={c.id: c.label for c in all_connections},
+        )
 
     # ──────────────────────────────────────────
     # Internal: Topology Discovery
