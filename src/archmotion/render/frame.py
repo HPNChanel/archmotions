@@ -21,7 +21,7 @@ from archmotion.render.path_render import (
 
 if TYPE_CHECKING:
     from archmotion.core.camera import Camera
-    from archmotion.core.property import CompiledTimeline, FrameSnapshot
+    from archmotion.core.property import CompiledTimeline
     from archmotion.core.scene import Scene
 
 

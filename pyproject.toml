@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "archmotion"
-version = "1.0.0"
-description = "Code-to-Video Framework for System Architecture Animations"
+version = "2.0.0"
+description = "Multi-domain animation engine — fuse architecture, geometry, charts, math & code"
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.10"
@@ -39,6 +39,7 @@ dependencies = [
     "Pillow>=10.0",
     "pydantic>=2.0",
     "rich>=13.0",
+    "numpy>=1.24",
 ]
 
 [project.optional-dependencies]

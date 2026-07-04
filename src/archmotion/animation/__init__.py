@@ -9,13 +9,19 @@ from archmotion.animation.base import (
     StateTween,
     Transform,
 )
+from archmotion.animation.recipes import ColorShift, Highlight, Pulse, Scale, Transfer
 
 __all__ = [
     "Animation",
     "AnimationGroup",
+    "ColorShift",
     "Create",
     "FadeIn",
     "FadeOut",
+    "Highlight",
+    "Pulse",
+    "Scale",
     "StateTween",
+    "Transfer",
     "Transform",
 ]

@@ -288,9 +288,9 @@ class VMobject(Graphic):
 
     def copy(self) -> VMobject:
         """Deep copy preserving points, contours, style, transform."""
-        from typing import cast  # noqa: PLC0415
+        from typing import cast
 
-        clone = cast(VMobject, super().copy())
+        clone = cast("VMobject", super().copy())
         clone._pts = list(self._pts)
         clone._contour_starts = list(self._contour_starts)
         clone._last = self._last

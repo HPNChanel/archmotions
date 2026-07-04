@@ -197,7 +197,7 @@ def build_skia_path(points: object, contour_starts: list[int]) -> object:
     return path
 
 
-def paint_effective(native: Any, state: EffectiveState) -> None:
+def paint_effective(native: Any, state: EffectiveState) -> None:  # noqa: ANN401
     """Paint one resolved graphic onto a raw ``skia.Canvas`` (native)."""
     import skia
 

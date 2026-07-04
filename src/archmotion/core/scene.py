@@ -90,7 +90,7 @@ class Scene:
         lag_ratio: float | None = None,
     ) -> Scene:
         """Play animations at the current clock, then advance the clock."""
-        from archmotion.animation.base import AnimationGroup  # noqa: PLC0415
+        from archmotion.animation.base import AnimationGroup
 
         if not animations:
             msg = "play() requires at least one animation."
@@ -179,9 +179,9 @@ def _walk(graphic: Graphic) -> list[Graphic]:
 
 def _to_animation(item: object) -> Animation:
     """Coerce an :class:`AnimateBuilder` into its built :class:`Animation`."""
-    from typing import cast  # noqa: PLC0415
+    from typing import cast
 
-    from archmotion.core.graphic import AnimateBuilder  # noqa: PLC0415
+    from archmotion.core.graphic import AnimateBuilder
 
     if isinstance(item, AnimateBuilder):
         return item.build()

@@ -14,7 +14,6 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from archmotion.core.property import Property, PropertyAction
-from archmotion.core.transform import Transform
 from archmotion.core.vmobject import VMobject
 from archmotion.render.path_render import DEFAULT_BACKGROUND_RGBA, resolve_effective
 

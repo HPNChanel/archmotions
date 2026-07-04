@@ -34,8 +34,8 @@ class Connection(VMobject):
 
     def __init__(
         self,
-        source: _VM,
-        target: _VM,
+        source: VMobject,
+        target: VMobject,
         *,
         label: str = "",
         arrow_size: float = 12.0,

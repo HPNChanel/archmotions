@@ -73,4 +73,14 @@ __all__ = [
     "parse_yaml_string",
 ]
 
-__version__ = "1.0.0"
+__version__ = "2.0.0"
+
+# ── v2.0 multi-domain engine ──────────────────────────────────────
+# The v2.0 API lives in `archmotion.core` (Scene, Graphic, VMobject, Camera,
+# Style, Transform, property model), `archmotion.animation` (FadeIn, Transform,
+# AnimationGroup, recipes), and `archmotion.domains` (geometry, charts, math,
+# architecture). Import directly, e.g.:
+#   from archmotion.core import Scene
+#   from archmotion.domains.geometry import Circle, Axes
+#   from archmotion.domains.architecture import Node
+#   from archmotion.animation import FadeIn, Transform
