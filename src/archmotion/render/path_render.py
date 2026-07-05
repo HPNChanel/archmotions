@@ -260,15 +260,17 @@ def paint_effective(native: Any, state: EffectiveState) -> None:  # noqa: ANN401
         native.restore()
 
 
-def _trim_path(path: object, progress: float) -> object:
+def _trim_path(path: Any, progress: float) -> Any:
     """Return the first ``progress`` fraction of a skia path (for Create)."""
-    import skia
+    import skia  # noqa: PLC0415
 
     measure = skia.PathMeasure(path, False)
     total = measure.getLength()
     if total <= 0:
         return path
-    return measure.getSegment(0.0, total * max(0.0, min(1.0, progress)), True)
+    dst = skia.Path()
+    measure.getSegment(0.0, total * max(0.0, min(1.0, progress)), dst, True)
+    return dst
 
 
 def _hex4f(hex_color: str, opacity: float = 1.0) -> object:

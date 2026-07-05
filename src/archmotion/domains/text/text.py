@@ -33,11 +33,11 @@ class Text(VMobject):
 
     def generate_points(self) -> None:
         """Extract glyph outlines and adopt them as this object's points."""
-        from archmotion.render.text_glyphs import glyph_points  # noqa: PLC0415
+        from archmotion.render.text_glyphs import glyph_points
 
         points, starts = glyph_points(
             self.text, family=self.family, size=self.size, bold=self.bold, italic=self.italic
         )
-        self._pts = points  # noqa: SLF001
-        self._contour_starts = starts  # noqa: SLF001
-        self._last = points[-1] if points else None  # noqa: SLF001
+        self._pts = points
+        self._contour_starts = starts
+        self._last = points[-1] if points else None

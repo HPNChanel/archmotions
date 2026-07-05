@@ -10,7 +10,7 @@ and unit-tested; ``glyph_points`` is exercised wherever skia-python is installed
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from archmotion.core.pathops import line_triplet, quad_to_cubic
 
@@ -50,23 +50,26 @@ def verbs_to_contours(verb_seq: Iterable[VerbEntry]) -> tuple[list[tuple[float, 
             contour_starts.append(len(points))
             points.append(anchor)
             last = anchor
-        elif verb == LINE:
-            assert last is not None
+            continue
+        if last is None:
+            msg = "Path verb before any moveTo."
+            raise RuntimeError(msg)
+        if verb == LINE:
             end = coords[-1]
             points.extend(line_triplet(last, end))
             last = end
         elif verb in (QUAD, CONIC):
-            assert last is not None
             start, ctrl, end = coords[0], coords[1], coords[2]
             points.extend(quad_to_cubic(start, ctrl, end))
             last = end
         elif verb == CUBIC:
-            assert last is not None
             c1, c2, end = coords[1], coords[2], coords[3]
             points.extend([(c1[0], c1[1]), (c2[0], c2[1]), (end[0], end[1])])
             last = end
         elif verb == CLOSE:
-            assert last is not None and anchor is not None
+            if anchor is None:
+                msg = "Close verb before any moveTo."
+                raise RuntimeError(msg)
             points.extend(line_triplet(last, anchor))
             last = anchor
         elif verb == DONE:
@@ -89,7 +92,7 @@ def glyph_points(
     at positive y — already correct for ArchMotion's y-down space). Returns
     ``(points, contour_starts)`` ready for a :class:`~archmotion.core.vmobject.VMobject`.
     """
-    import skia  # noqa: PLC0415
+    import skia
 
     typeface = _make_typeface(family, bold, italic)
     font = skia.Font(typeface, size)
@@ -101,7 +104,7 @@ def glyph_points(
     all_points: list[tuple[float, float]] = []
     all_starts: list[int] = []
     x_offset = 0.0
-    for gid, advance in zip(glyph_ids, widths):
+    for gid, advance in zip(glyph_ids, widths, strict=True):
         path = font.getPath(gid)
         if path is not None:
             verb_seq = _iter_skia_path(path)
@@ -117,7 +120,7 @@ def glyph_points(
 
 def _make_typeface(family: str, bold: bool, italic: bool) -> object:
     """Build a skia Typeface honoring bold/italic flags."""
-    import skia  # noqa: PLC0415
+    import skia
 
     if not bold and not italic:
         return skia.Typeface(family)
@@ -126,9 +129,9 @@ def _make_typeface(family: str, bold: bool, italic: bool) -> object:
     return skia.Typeface(family, skia.FontStyle(weight, 5, slant))
 
 
-def _iter_skia_path(path: object) -> list[VerbEntry]:
+def _iter_skia_path(path: Any) -> list[VerbEntry]:  # noqa: ANN401
     """Iterate a skia.Path's RawIter into plain (verb, coords) entries."""
-    import skia  # noqa: PLC0415
+    import skia
 
     raw = path.RawIter(path)
     done = int(skia.Path.Verb.kDone_Verb)

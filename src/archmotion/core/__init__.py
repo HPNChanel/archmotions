@@ -18,6 +18,7 @@ from archmotion.core.property import (
 from archmotion.core.scene import Scene
 from archmotion.core.style import Style
 from archmotion.core.transform import Transform
+from archmotion.core.vgroup import VGroup
 from archmotion.core.vmobject import VMobject
 
 __all__ = [
@@ -32,5 +33,6 @@ __all__ = [
     "Scene",
     "Style",
     "Transform",
+    "VGroup",
     "VMobject",
 ]
