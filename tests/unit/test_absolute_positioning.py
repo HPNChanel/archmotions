@@ -18,11 +18,6 @@ import textwrap
 import pytest
 from pydantic import ValidationError
 
-from archmotion.api.connections import Connection
-from archmotion.api.primitives import AbsolutePosition, Node, RelativePosition
-from archmotion.api.scene import Scene
-from archmotion.errors import TopologyError
-from archmotion.layout.resolver import resolve_layout
 from archmotion.ai import parse_yaml_string
 from archmotion.ai.schema import (
     AbsolutePositionSpec,
@@ -32,7 +27,12 @@ from archmotion.ai.schema import (
     SceneSpec,
     StepSpec,
 )
-from archmotion.ai.builder import build_scene
+from archmotion.core.scene import Scene
+from archmotion.domains.architecture import Connection, Node
+from archmotion.domains.architecture.layout import resolve_architecture
+from archmotion.errors import TopologyError
+from archmotion.layout.positions import AbsolutePosition, RelativePosition
+from archmotion.layout.resolver import resolve_layout
 
 CANVAS_W = 1920
 CANVAS_H = 1080
@@ -262,18 +262,20 @@ class TestBuilderAbsolute:
 
     def test_parse_yaml_absolute_resolves_fixed_positions(self):
         scene = parse_yaml_string(ABSOLUTE_YAML)
-        layout = scene.resolve()
+        layout = resolve_architecture(scene)
         # Node 'a' should be at the absolute (120, 200) top-left.
-        a_node = next(n for n in scene._nodes if n.label == "Client")
+        arch_nodes = [g for g in scene.all_graphics() if isinstance(g, Node)]
+        a_node = next(n for n in arch_nodes if n.label == "Client")
         assert layout.node_boxes[a_node.id].x == pytest.approx(120.0)
         assert layout.node_boxes[a_node.id].y == pytest.approx(200.0)
 
     def test_mixed_yaml_builds_and_resolves(self):
         scene = parse_yaml_string(MIXED_YAML)
-        layout = scene.resolve()
+        layout = resolve_architecture(scene)
         # Root fixed; child to the right.
-        root = next(n for n in scene._nodes if n.label == "Root")
-        child = next(n for n in scene._nodes if n.label == "Child")
+        nodes = [g for g in scene.all_graphics() if isinstance(g, Node)]
+        root = next(n for n in nodes if n.label == "Root")
+        child = next(n for n in nodes if n.label == "Child")
         root_box = layout.node_boxes[root.id]
         child_box = layout.node_boxes[child.id]
         assert root_box.x == pytest.approx(300.0)
@@ -307,7 +309,7 @@ class TestInMemoryExport:
         scene = Scene(resolution="1080p", fps=60)
         a = Node("Alpha").at(100, 100)
         scene.add_node(a)
-        layout = scene.resolve()
+        layout = resolve_architecture(scene)
         assert a.id in layout.node_boxes
 
     def test_to_lottie_returns_dict(self):
@@ -321,7 +323,8 @@ class TestInMemoryExport:
         scene = self._scene_with_animations()
         svg = scene.to_svg()
         assert isinstance(svg, str)
-        assert svg.lstrip().startswith("<svg")
+        assert "<svg" in svg
+        assert svg.rstrip().endswith("</svg>")
 
     def test_to_html_returns_string_with_player(self):
         scene = self._scene_with_animations()

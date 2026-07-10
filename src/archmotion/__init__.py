@@ -1,4 +1,4 @@
-"""ArchMotion — Code-to-Video Framework for System Architecture Animations.
+"""ArchMotion — Multi-domain code-to-video animation framework.
 
 Public API re-exports for convenient user access.
 
@@ -16,26 +16,19 @@ Usage (CLI)::
     archmotion themes
 
 Architectural Note:
-    This module only re-exports. No logic lives here.
-    Implementation resides in subpackages (api/, layout/, timeline/, renderer/, exporter/).
+    v2.0 public surface. The engine lives in ``archmotion.core`` (Scene, Graphic,
+    VMobject, Camera), ``archmotion.domains`` (architecture/geometry/charts/...),
+    ``archmotion.animation``, ``archmotion.render``, and ``archmotion.exporter``.
+    This module only re-exports; no logic lives here.
 """
 
 from __future__ import annotations
 
-# ── Core API ──
-from archmotion.api.primitives import (
-    Cache,
-    Cloud,
-    Database,
-    Node,
-    Queue,
-    User,
-)
-from archmotion.api.connections import Connection
-from archmotion.api.scene import Scene
+# ── YAML AI Interface ──
+from archmotion.ai import load_yaml, parse_yaml_string
 
 # ── Animations ──
-from archmotion.motions._animations import (
+from archmotion.animation import (
     ColorShift,
     FadeIn,
     FadeOut,
@@ -46,41 +39,37 @@ from archmotion.motions._animations import (
     Transfer,
 )
 
-# ── YAML AI Interface ──
-from archmotion.ai import load_yaml, parse_yaml_string
+# ── Core API ──
+from archmotion.core.scene import Scene
+from archmotion.domains.architecture import (
+    Cache,
+    Cloud,
+    Connection,
+    Database,
+    Node,
+    Queue,
+    User,
+)
 
 __all__ = [
-    # Core
-    "Scene",
-    "Node",
-    "Database",
-    "Cloud",
-    "Queue",
     "Cache",
-    "User",
+    "Cloud",
+    "ColorShift",
     "Connection",
-    # Animations
+    "Database",
     "FadeIn",
     "FadeOut",
-    "Transfer",
-    "Pulse",
     "Highlight",
-    "ColorShift",
-    "ScaleUp",
+    "Node",
+    "Pulse",
+    "Queue",
     "ScaleDown",
-    # YAML
+    "ScaleUp",
+    "Scene",
+    "Transfer",
+    "User",
     "load_yaml",
     "parse_yaml_string",
 ]
 
 __version__ = "2.0.0"
-
-# ── v2.0 multi-domain engine ──────────────────────────────────────
-# The v2.0 API lives in `archmotion.core` (Scene, Graphic, VMobject, Camera,
-# Style, Transform, property model), `archmotion.animation` (FadeIn, Transform,
-# AnimationGroup, recipes), and `archmotion.domains` (geometry, charts, math,
-# architecture). Import directly, e.g.:
-#   from archmotion.core import Scene
-#   from archmotion.domains.geometry import Circle, Axes
-#   from archmotion.domains.architecture import Node
-#   from archmotion.animation import FadeIn, Transform

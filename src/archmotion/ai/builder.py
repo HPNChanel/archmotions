@@ -1,22 +1,25 @@
-"""Scene Builder — converts validated SceneSpec into a Scene object.
+"""Scene Builder — converts a validated SceneSpec into a v2 Scene object.
 
 Architectural Note:
-    This module is the bridge between LLM-generated YAML and ArchMotion's
-    Python API. It creates real Node/Connection/Animation objects from
-    the validated Pydantic spec, performing ID resolution along the way.
+    This module is the bridge between LLM-generated YAML and ArchMotion's v2
+    Python API. It creates real architecture VMobjects (Node/Connection) and v2
+    animations from the validated Pydantic spec, performing ID resolution along
+    the way.
 
     The builder follows a 4-phase process:
-        1. Create nodes (id → Node mapping)
-        2. Set relative positions (resolve anchor references)
+        1. Create nodes (spec id → Node mapping)
+        2. Set relative/absolute positions (resolve anchor references)
         3. Create connections (resolve source/target node references)
         4. Execute choreography (play/wait/concurrent)
 
 Security:
-    All inputs are pre-validated by Pydantic. This module does NOT
-    perform its own validation — it trusts the SceneSpec contract.
+    All inputs are pre-validated by Pydantic. This module does NOT perform its
+    own validation — it trusts the SceneSpec contract.
 """
 
 from __future__ import annotations
+
+from typing import Any
 
 from archmotion.ai.schema import (
     AbsolutePositionSpec,
@@ -24,18 +27,27 @@ from archmotion.ai.schema import (
     NodeSpec,
     SceneSpec,
 )
-from archmotion.api.connections import Connection
-from archmotion.api.primitives import Cache, Cloud, Database, Node, Queue, User
-from archmotion.api.scene import Scene
-from archmotion.motions._animations import (
+from archmotion.animation import (
+    Animation,
+    AnimationGroup,
     ColorShift,
     FadeIn,
     FadeOut,
     Highlight,
     Pulse,
-    ScaleDown,
-    ScaleUp,
+    Scale,
     Transfer,
+)
+from archmotion.constants import DEFAULT_SCALE_FACTOR
+from archmotion.core.scene import Scene
+from archmotion.domains.architecture.connections import Connection
+from archmotion.domains.architecture.primitives import (
+    Cache,
+    Cloud,
+    Database,
+    Node,
+    Queue,
+    User,
 )
 
 # ──────────────────────────────────────────────
@@ -53,17 +65,13 @@ _NODE_FACTORIES: dict[str, type[Node]] = {
 
 
 def _create_node(spec: NodeSpec) -> Node:
-    """Create a Node instance from a NodeSpec.
-
-    Uses the type field to dispatch to the correct subclass.
-    Cloud nodes get the optional provider field.
-    """
+    """Create a v2 architecture node instance from a NodeSpec."""
     factory = _NODE_FACTORIES.get(spec.type, Node)
-
+    node = factory(label=spec.label)
     if spec.type == "cloud" and spec.provider:
-        return factory(label=spec.label, provider=spec.provider)
-
-    return factory(label=spec.label)
+        # Preserve the provider hint (v2 Cloud has no constructor param for it).
+        node.provider = spec.provider  # type: ignore[attr-defined]
+    return node
 
 
 # ──────────────────────────────────────────────
@@ -83,12 +91,19 @@ _DIRECTION_METHODS = {
 # ──────────────────────────────────────────────
 
 
+def _duration_kwargs(anim_spec: AnimationSpec) -> dict[str, Any]:
+    """Return ``{duration: ...}`` if the spec sets a duration, else empty."""
+    if anim_spec.duration is not None:
+        return {"duration": anim_spec.duration}
+    return {}
+
+
 def _build_animation(
     anim_spec: AnimationSpec,
     nodes: dict[str, Node],
     connections: dict[str, Connection],
-) -> object:
-    """Build an Animation object from an AnimationSpec.
+) -> Animation:
+    """Build a v2 Animation object from an AnimationSpec.
 
     Args:
         anim_spec: Validated animation specification.
@@ -96,20 +111,17 @@ def _build_animation(
         connections: Mapping of conn_id → Connection object.
 
     Returns:
-        An animation instance (FadeIn, Transfer, etc.).
+        A v2 animation instance (FadeIn, Transfer, etc.).
 
     Raises:
         ValueError: If referenced IDs cannot be resolved.
     """
     atype = anim_spec.type
-    kwargs: dict = {}
-
-    if anim_spec.duration is not None:
-        kwargs["duration"] = anim_spec.duration
+    kw = _duration_kwargs(anim_spec)
 
     # ── FadeIn / FadeOut ──
     if atype in ("fade_in", "fade_out"):
-        targets_list: list = []
+        targets_list: list[object] = []
         if anim_spec.targets:
             for tid in anim_spec.targets:
                 if tid in nodes:
@@ -121,7 +133,7 @@ def _build_animation(
                     raise ValueError(msg)
 
         cls = FadeIn if atype == "fade_in" else FadeOut
-        return cls(*targets_list, **kwargs)
+        return cls(*targets_list, **kw)  # type: ignore[arg-type]
 
     # ── Transfer ──
     if atype == "transfer":
@@ -133,57 +145,66 @@ def _build_animation(
         if isinstance(conn_refs, list):
             conn_objs = [connections[c] for c in conn_refs]
         else:
-            conn_objs = connections[conn_refs]
+            conn_objs = [connections[conn_refs]]
 
+        transfer_kw = dict(kw)
         if anim_spec.payload:
-            kwargs["payload"] = anim_spec.payload
+            transfer_kw["payload"] = anim_spec.payload
         if anim_spec.reverse:
-            kwargs["reverse"] = True
+            transfer_kw["reverse"] = True
         if anim_spec.packet_color:
-            kwargs["packet_color"] = anim_spec.packet_color
+            transfer_kw["color"] = anim_spec.packet_color
 
-        return Transfer(connection=conn_objs, **kwargs)
+        if len(conn_objs) == 1:
+            return Transfer(conn_objs[0], **transfer_kw)
+        return AnimationGroup(*(Transfer(c, **transfer_kw) for c in conn_objs), lag_ratio=0.0)
 
     # ── Pulse ──
     if atype == "pulse":
+        if anim_spec.target is None:
+            msg = "pulse animation requires 'target' field"
+            raise ValueError(msg)
         target_node = nodes[anim_spec.target]
+        pulse_kw = dict(kw)
         if anim_spec.color:
-            kwargs["color"] = anim_spec.color
+            pulse_kw["color"] = anim_spec.color
         if anim_spec.intensity is not None:
-            kwargs["intensity"] = anim_spec.intensity
-        return Pulse(target=target_node, **kwargs)
+            pulse_kw["intensity"] = anim_spec.intensity
+        return Pulse(target_node, **pulse_kw)
 
     # ── Highlight ──
     if atype == "highlight":
+        if anim_spec.target is None:
+            msg = "highlight animation requires 'target' field"
+            raise ValueError(msg)
         target_node = nodes[anim_spec.target]
-        if anim_spec.color:
-            kwargs["color"] = anim_spec.color
+        hl_kw = dict(kw)
         if anim_spec.intensity is not None:
-            kwargs["intensity"] = anim_spec.intensity
-        return Highlight(target=target_node, **kwargs)
+            hl_kw["intensity"] = anim_spec.intensity
+        return Highlight(target_node, **hl_kw)
 
     # ── ColorShift ──
     if atype == "color_shift":
+        if anim_spec.target is None:
+            msg = "color_shift animation requires 'target' field"
+            raise ValueError(msg)
         target_node = nodes[anim_spec.target]
+        cs_kw = dict(kw)
         if anim_spec.from_color:
-            kwargs["from_color"] = anim_spec.from_color
+            cs_kw["from_color"] = anim_spec.from_color
         if anim_spec.to_color:
-            kwargs["to_color"] = anim_spec.to_color
-        return ColorShift(target=target_node, **kwargs)
+            cs_kw["to_color"] = anim_spec.to_color
+        return ColorShift(target_node, **cs_kw)
 
-    # ── ScaleUp ──
-    if atype == "scale_up":
+    # ── ScaleUp / ScaleDown ──
+    if atype in ("scale_up", "scale_down"):
+        if anim_spec.target is None:
+            msg = "scale animation requires 'target' field"
+            raise ValueError(msg)
         target_node = nodes[anim_spec.target]
-        if anim_spec.factor is not None:
-            kwargs["factor"] = anim_spec.factor
-        return ScaleUp(target=target_node, **kwargs)
-
-    # ── ScaleDown ──
-    if atype == "scale_down":
-        target_node = nodes[anim_spec.target]
-        if anim_spec.factor is not None:
-            kwargs["factor"] = anim_spec.factor
-        return ScaleDown(target=target_node, **kwargs)
+        default = DEFAULT_SCALE_FACTOR if atype == "scale_up" else 1.0 / DEFAULT_SCALE_FACTOR
+        factor = anim_spec.factor if anim_spec.factor is not None else default
+        return Scale(target_node, factor, **kw)
 
     msg = f"Unknown animation type: {atype}"
     raise ValueError(msg)
@@ -195,27 +216,23 @@ def _build_animation(
 
 
 def build_scene(spec: SceneSpec) -> Scene:
-    """Convert a validated SceneSpec into a fully-wired Scene.
-
-    This is the core transformation function of the YAML AI Interface.
-    It translates declarative YAML data into imperative Scene API calls.
+    """Convert a validated SceneSpec into a fully-wired v2 Scene.
 
     Args:
         spec: A validated SceneSpec (from Pydantic parsing).
 
     Returns:
-        A fully-configured Scene ready for .render().
+        A fully-configured v2 Scene ready for .render() / .export().
 
     Raises:
         ValueError: If any ID references cannot be resolved.
     """
     scene = Scene(resolution=spec.resolution, fps=spec.fps, theme=spec.theme)
 
-    # ── Phase 1: Create nodes (id → Node mapping) ──
+    # ── Phase 1: Create nodes (spec id → Node mapping) ──
     nodes: dict[str, Node] = {}
     for node_spec in spec.nodes:
-        node = _create_node(node_spec)
-        nodes[node_spec.id] = node
+        nodes[node_spec.id] = _create_node(node_spec)
 
     # ── Phase 2: Set positions (relative or absolute) ──
     for node_spec in spec.nodes:
@@ -225,13 +242,11 @@ def build_scene(spec: SceneSpec) -> Scene:
         node = nodes[node_spec.id]
 
         if isinstance(node_spec.position, AbsolutePositionSpec):
-            # Freeform absolute placement (e.g. from the visual editor).
             node.at(node_spec.position.x, node_spec.position.y)
             continue
 
         anchor = nodes[node_spec.position.anchor]
-        method_name = _DIRECTION_METHODS[node_spec.position.direction]
-        method = getattr(node, method_name)
+        method = getattr(node, _DIRECTION_METHODS[node_spec.position.direction])
         method(anchor, distance=node_spec.position.distance)
 
     # ── Phase 3: Create connections ──
@@ -239,17 +254,16 @@ def build_scene(spec: SceneSpec) -> Scene:
     for conn_spec in spec.connections:
         src = nodes[conn_spec.source]
         tgt = nodes[conn_spec.target]
-        conn = Connection(
+        connections[conn_spec.id] = Connection(
             source=src,
             target=tgt,
-            label=conn_spec.label,
-            corner_radius=conn_spec.corner_radius,
+            label=conn_spec.label or "",
+            corner_radius=conn_spec.corner_radius or 0.0,
         )
-        connections[conn_spec.id] = conn
 
     # Explicitly register every node + connection on the Scene so the full
     # topology is available even before/without animations (e.g. so the visual
-    # editor can call Scene.resolve() to read all node bounding boxes).
+    # editor can call Scene.to_layout_dict() to read all node bounding boxes).
     for node in nodes.values():
         scene.add_node(node)
     for conn in connections.values():
@@ -258,19 +272,22 @@ def build_scene(spec: SceneSpec) -> Scene:
     # ── Phase 4: Execute choreography ──
     for step in spec.choreography:
         if step.action == "wait":
-            scene.wait(duration=step.duration)
+            if step.duration is not None:
+                scene.wait(step.duration)
 
         elif step.action == "play":
+            if step.animation is None:  # validated by schema; defensive
+                continue
             anim = _build_animation(step.animation, nodes, connections)
-            play_kwargs: dict = {}
             if step.duration is not None:
-                play_kwargs["duration"] = step.duration
-            scene.play(anim, **play_kwargs)
+                scene.play(anim, duration=step.duration)
+            else:
+                scene.play(anim)
 
         elif step.action == "concurrent":
+            anims = step.animations or []
             with scene.concurrent():
-                for anim_spec in step.animations:
-                    anim = _build_animation(anim_spec, nodes, connections)
-                    scene.play(anim)
+                for anim_spec in anims:
+                    scene.play(_build_animation(anim_spec, nodes, connections))
 
     return scene

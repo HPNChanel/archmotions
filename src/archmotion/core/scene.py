@@ -16,7 +16,6 @@ ergonomic v1-style calls (``add_node``/``add_connection``, ``concurrent()``,
 from __future__ import annotations
 
 import json
-from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -28,6 +27,8 @@ from archmotion.errors import EmptyTimelineError
 from archmotion.render.theme import ThemeConfig, get_theme
 
 if TYPE_CHECKING:
+    from collections.abc import Callable, Iterator
+
     from archmotion.animation.base import Animation
     from archmotion.core.graphic import Graphic
 
@@ -100,6 +101,16 @@ class Scene:
     def clock(self) -> float:
         """Current virtual time (seconds)."""
         return self._clock
+
+    @property
+    def total_duration(self) -> float:
+        """Total timeline duration in seconds (alias for :attr:`clock`)."""
+        return self._clock
+
+    @property
+    def canvas_size(self) -> tuple[int, int]:
+        """Canvas dimensions as ``(width, height)`` in pixels."""
+        return self.resolution
 
     def add(self, *graphics: Graphic) -> Scene:
         """Register graphics in the scene."""
@@ -267,7 +278,7 @@ class Scene:
         fps: int | None = None,
         crf: int = 20,
         show_progress: bool = False,
-        on_progress: Any = None,
+        on_progress: Callable[[int, int], None] | None = None,
     ) -> Path:
         """Render the scene to an MP4 video file. Returns the file path.
 
@@ -428,7 +439,10 @@ def _hex_to_rgba(color: str) -> tuple[float, float, float, float]:
         h = "".join(ch * 2 for ch in h)
     try:
         if len(h) == 6:
-            r, g, b, a = int(h[0:2], 16) / 255.0, int(h[2:4], 16) / 255.0, int(h[4:6], 16) / 255.0, 1.0
+            r = int(h[0:2], 16) / 255.0
+            g = int(h[2:4], 16) / 255.0
+            b = int(h[4:6], 16) / 255.0
+            a = 1.0
         elif len(h) == 8:
             r, g, b, a = (
                 int(h[0:2], 16) / 255.0,

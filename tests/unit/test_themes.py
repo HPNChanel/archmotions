@@ -14,9 +14,8 @@ Tests cover:
 import pytest
 
 from archmotion.ai.schema import ConnectionSpec, SceneSpec
-from archmotion.api.connections import Connection
-from archmotion.api.primitives import Node
-from archmotion.renderer.theme import THEMES, ThemeConfig, get_theme
+from archmotion.domains.architecture import Connection, Node
+from archmotion.render.theme import THEMES, ThemeConfig, get_theme
 
 
 # ──────────────────────────────────────────────

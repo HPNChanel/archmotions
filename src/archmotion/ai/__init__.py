@@ -20,13 +20,16 @@ Security:
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import yaml
 from pydantic import ValidationError
 
 from archmotion.ai.builder import build_scene
 from archmotion.ai.schema import SceneSpec
-from archmotion.api.scene import Scene
+
+if TYPE_CHECKING:
+    from archmotion.core.scene import Scene
 
 # Security: maximum YAML file size (1MB)
 MAX_YAML_FILE_SIZE: int = 1_048_576
@@ -49,6 +52,7 @@ class YAMLParseError(Exception):
         errors: list[dict] | None = None,
         yaml_content: str | None = None,
     ) -> None:
+        """Store the message, optional Pydantic errors, and offending YAML content."""
         super().__init__(message)
         self.errors = errors or []
         self.yaml_content = yaml_content

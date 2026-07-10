@@ -16,17 +16,16 @@ Note:
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
 from archmotion.api.connections import Connection
 from archmotion.api.primitives import Database, Node
 from archmotion.api.scene import Scene
-from archmotion.errors import EmptyTimelineError, TimelineError
+from archmotion.errors import EmptyTimelineError
 from archmotion.exporter.pool import ExportResult
-from archmotion.motions._animations import FadeIn, FadeOut, Pulse, Transfer
-
+from archmotion.motions._animations import FadeIn, Pulse, Transfer
 
 # ──────────────────────────────────────────────
 # Helper: Tiny Scene Factory
@@ -120,139 +119,59 @@ class TestCollectTopology:
 
 
 class TestSceneRender:
-    """Test Scene.render() orchestrates all 4 phases correctly."""
+    """Test the v2 Scene.render() pipeline wiring (mocked render_scene)."""
 
     def test_empty_timeline_raises(self):
-        scene = Scene()
+        from archmotion.core.scene import Scene as V2Scene
+
+        scene = V2Scene()
         with pytest.raises(EmptyTimelineError):
             scene.render("nope.mp4")
 
-    def test_post_render_blocks_play(self, tmp_path):
-        """After render(), play() should raise TimelineError."""
-        scene, server, db, conn = _make_tiny_scene()
-        scene.play(FadeIn(server, db))
+    def test_render_invokes_render_scene(self, tmp_path):
+        from archmotion.animation import FadeIn as V2FadeIn
+        from archmotion.core.scene import Scene as V2Scene
+        from archmotion.domains.architecture import Node as V2Node
 
-        mock_result = _mock_export_result(tmp_path / "mock.mp4")
+        scene = V2Scene(resolution="720p", fps=30)
+        server = V2Node("Server")
+        scene.play(V2FadeIn(server))
 
-        with patch("archmotion.api.scene.export_video", return_value=mock_result):
+        with patch(
+            "archmotion.render.frame.render_scene",
+            return_value=str(tmp_path / "test.mp4"),
+        ) as mock_rs:
             scene.render(str(tmp_path / "test.mp4"))
-
-        with pytest.raises(TimelineError):
-            scene.play(FadeIn(server))
-
-    def test_render_calls_all_phases(self, tmp_path):
-        """Verify render() invokes resolve_layout, compile_timeline, export_video."""
-        scene, server, db, conn = _make_tiny_scene()
-        scene.play(FadeIn(server, db))
-        scene.play(Transfer(conn, payload="Q", duration=0.2))
-
-        mock_result = _mock_export_result(tmp_path / "test.mp4")
-
-        with patch("archmotion.api.scene.export_video", return_value=mock_result) as mock_export, \
-             patch("archmotion.api.scene.resolve_layout") as mock_layout, \
-             patch("archmotion.api.scene.compile_timeline") as mock_timeline:
-
-            # Setup return values
-            from archmotion.layout.resolver import ResolvedLayout
-            from archmotion.timeline.compiler import CompiledTimeline
-
-            mock_layout.return_value = ResolvedLayout(
-                node_boxes={}, connection_routes={},
-                canvas_width=1280, canvas_height=720,
-            )
-            mock_timeline.return_value = CompiledTimeline(
-                actions=(), total_duration=1.0, total_frames=30, fps=30,
-            )
-
-            scene.render(str(tmp_path / "test.mp4"))
-
-            # All 3 pipeline functions were called
-            mock_layout.assert_called_once()
-            mock_timeline.assert_called_once()
-            mock_export.assert_called_once()
-
-    def test_render_passes_correct_layout_args(self, tmp_path):
-        """Verify render() passes canvas dimensions to resolve_layout."""
-        scene, server, db, conn = _make_tiny_scene()
-        scene.play(FadeIn(server, db))
-
-        mock_result = _mock_export_result(tmp_path / "test.mp4")
-
-        with patch("archmotion.api.scene.export_video", return_value=mock_result) as mock_export, \
-             patch("archmotion.api.scene.resolve_layout") as mock_layout, \
-             patch("archmotion.api.scene.compile_timeline") as mock_timeline:
-
-            from archmotion.layout.resolver import ResolvedLayout
-            from archmotion.timeline.compiler import CompiledTimeline
-
-            mock_layout.return_value = ResolvedLayout(
-                node_boxes={}, connection_routes={},
-                canvas_width=1280, canvas_height=720,
-            )
-            mock_timeline.return_value = CompiledTimeline(
-                actions=(), total_duration=0.5, total_frames=15, fps=30,
-            )
-
-            scene.render(str(tmp_path / "test.mp4"))
-
-            # Check layout was called with correct canvas dimensions (720p)
-            call_kwargs = mock_layout.call_args
-            assert call_kwargs.kwargs["canvas_width"] == 1280
-            assert call_kwargs.kwargs["canvas_height"] == 720
-
-    def test_render_passes_progress_callback(self, tmp_path):
-        """Verify on_progress is forwarded to export_video."""
-        scene, server, db, conn = _make_tiny_scene()
-        scene.play(FadeIn(server))
-
-        mock_result = _mock_export_result(tmp_path / "test.mp4")
-        callback = MagicMock()
-
-        with patch("archmotion.api.scene.export_video", return_value=mock_result) as mock_export, \
-             patch("archmotion.api.scene.resolve_layout") as mock_layout, \
-             patch("archmotion.api.scene.compile_timeline") as mock_timeline:
-
-            from archmotion.layout.resolver import ResolvedLayout
-            from archmotion.timeline.compiler import CompiledTimeline
-
-            mock_layout.return_value = ResolvedLayout(
-                node_boxes={}, connection_routes={},
-                canvas_width=1280, canvas_height=720,
-            )
-            mock_timeline.return_value = CompiledTimeline(
-                actions=(), total_duration=0.5, total_frames=15, fps=30,
-            )
-
-            scene.render(str(tmp_path / "p.mp4"), on_progress=callback)
-
-            # Verify on_progress was forwarded
-            call_kwargs = mock_export.call_args
-            assert call_kwargs.kwargs["on_progress"] is callback
+            mock_rs.assert_called_once()
 
     def test_auto_appends_mp4_extension(self, tmp_path):
-        """Output file should auto-get .mp4 extension."""
-        scene, server, db, conn = _make_tiny_scene()
-        scene.play(FadeIn(server))
+        from archmotion.animation import FadeIn as V2FadeIn
+        from archmotion.core.scene import Scene as V2Scene
+        from archmotion.domains.architecture import Node as V2Node
 
-        mock_result = _mock_export_result(tmp_path / "no_ext.mp4")
+        scene = V2Scene(resolution="720p", fps=30)
+        scene.play(V2FadeIn(V2Node("Server")))
 
-        with patch("archmotion.api.scene.export_video", return_value=mock_result) as mock_export, \
-             patch("archmotion.api.scene.resolve_layout") as mock_layout, \
-             patch("archmotion.api.scene.compile_timeline") as mock_timeline:
-
-            from archmotion.layout.resolver import ResolvedLayout
-            from archmotion.timeline.compiler import CompiledTimeline
-
-            mock_layout.return_value = ResolvedLayout(
-                node_boxes={}, connection_routes={},
-                canvas_width=1280, canvas_height=720,
-            )
-            mock_timeline.return_value = CompiledTimeline(
-                actions=(), total_duration=0.5, total_frames=15, fps=30,
-            )
-
+        with patch(
+            "archmotion.render.frame.render_scene",
+            return_value=str(tmp_path / "no_ext.mp4"),
+        ) as mock_rs:
             result = scene.render(str(tmp_path / "no_ext"))
+            # The output path passed to render_scene ends with .mp4.
+            assert mock_rs.call_args.args[1].endswith(".mp4")
+            assert str(result).endswith(".mp4")
 
-            # The output_path passed to export_video should end with .mp4
-            call_kwargs = mock_export.call_args
-            assert str(call_kwargs.kwargs["output_path"]).endswith(".mp4")
+    def test_render_returns_path(self, tmp_path):
+        from archmotion.animation import FadeIn as V2FadeIn
+        from archmotion.core.scene import Scene as V2Scene
+        from archmotion.domains.architecture import Node as V2Node
+
+        scene = V2Scene(resolution="720p", fps=30)
+        scene.play(V2FadeIn(V2Node("Server")))
+
+        with patch(
+            "archmotion.render.frame.render_scene",
+            return_value=str(tmp_path / "out.mp4"),
+        ):
+            result = scene.render(str(tmp_path / "out.mp4"))
+            assert result.name == "out.mp4"

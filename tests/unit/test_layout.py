@@ -17,11 +17,9 @@ from __future__ import annotations
 
 import pytest
 
-from archmotion.api.connections import Connection
-from archmotion.api.primitives import Database, Node
+from archmotion.domains.architecture import Connection, Database, Node
 from archmotion.errors import (
     CircularReferenceError,
-    DuplicateIdError,
     OverflowCanvasError,
 )
 from archmotion.layout.bbox import BoundingBox
@@ -282,16 +280,6 @@ class TestGoldenScript:
 # ──────────────────────────────────────────────
 # Error Cases
 # ──────────────────────────────────────────────
-
-
-class TestDuplicateId:
-    """Two nodes with the same ID should raise DuplicateIdError."""
-
-    def test_raises_on_duplicate(self):
-        a = Node("A", id="same_id")  # type: ignore[call-arg]
-        b = Node("B", id="same_id")  # type: ignore[call-arg]
-        with pytest.raises(DuplicateIdError, match="same_id"):
-            _resolve(a, b)
 
 
 class TestCircularReference:

@@ -282,3 +282,35 @@ class Scale(Animation):
                 easing=self.rate_func,
             )
         ]
+
+
+class ScaleUp(Scale):
+    """Scale a target up (factor >= 1). Convenience subclass of :class:`Scale`."""
+
+    def __init__(
+        self,
+        target: Graphic,
+        factor: float = 1.3,
+        *,
+        run_time: float = 0.3,
+        rate_func: str = "ease_out",
+        duration: float | None = None,
+    ) -> None:
+        """Store target + factor (default 1.3)."""
+        super().__init__(target, factor, run_time=run_time, rate_func=rate_func, duration=duration)
+
+
+class ScaleDown(Scale):
+    """Scale a target down (factor <= 1). Convenience subclass of :class:`Scale`."""
+
+    def __init__(
+        self,
+        target: Graphic,
+        factor: float = 0.77,
+        *,
+        run_time: float = 0.3,
+        rate_func: str = "ease_out",
+        duration: float | None = None,
+    ) -> None:
+        """Store target + factor (default 0.77)."""
+        super().__init__(target, factor, run_time=run_time, rate_func=rate_func, duration=duration)

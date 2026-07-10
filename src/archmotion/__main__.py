@@ -31,7 +31,6 @@ from pathlib import Path
 
 from archmotion import __version__
 
-
 # ──────────────────────────────────────────────
 # Format Detection
 # ──────────────────────────────────────────────
@@ -92,8 +91,9 @@ def detect_format(output_path: str, format_override: str | None = None) -> str:
 def _cmd_render(args: argparse.Namespace) -> int:
     """Execute the ``render`` subcommand.
 
-    Loads a YAML scene file, resolves the layout, compiles the timeline,
-    and exports to the specified format.
+    Loads a YAML scene file, builds a v2 :class:`Scene`, and exports to the
+    requested format. The v2 Scene handles layout resolution (Phase 2) and
+    timeline compilation internally.
 
     Args:
         args: Parsed CLI arguments.
@@ -101,12 +101,8 @@ def _cmd_render(args: argparse.Namespace) -> int:
     Returns:
         Exit code (0 = success, 1 = error).
     """
-    from archmotion.ai import load_yaml, YAMLParseError
-    from archmotion.exporter.lottie import export_lottie
-    from archmotion.exporter.html_player import export_html_player, export_svg
-    from archmotion.layout.resolver import resolve_layout
-    from archmotion.renderer.theme import get_theme, THEMES
-    from archmotion.timeline.compiler import compile_timeline
+    from archmotion.ai import YAMLParseError, load_yaml
+    from archmotion.render.theme import THEMES, get_theme
 
     input_path = args.input
     output_path = args.output or _default_output(input_path, args.format)
@@ -115,81 +111,50 @@ def _cmd_render(args: argparse.Namespace) -> int:
     try:
         fmt = detect_format(output_path, args.format)
     except ValueError as exc:
-        print(f"Error: {exc}", file=sys.stderr)  # noqa: T201
+        print(f"Error: {exc}", file=sys.stderr)
         return 1
 
     # Validate theme
     theme_name = args.theme or "dark_terminal"
     if theme_name not in THEMES:
-        print(  # noqa: T201
+        print(
             f"Error: Unknown theme '{theme_name}'. "
             f"Available: {', '.join(THEMES.keys())}",
             file=sys.stderr,
         )
         return 1
 
-    # Load YAML
+    # Load YAML → v2 Scene
     try:
         scene = load_yaml(input_path)
     except FileNotFoundError as exc:
-        print(f"Error: {exc}", file=sys.stderr)  # noqa: T201
+        print(f"Error: {exc}", file=sys.stderr)
         return 1
     except YAMLParseError as exc:
-        print(f"Error: {exc}", file=sys.stderr)  # noqa: T201
+        print(f"Error: {exc}", file=sys.stderr)
         return 1
 
-    # Route to appropriate export format
+    # Apply --theme override
+    if args.theme and scene.theme.name != theme_name:
+        scene.theme = get_theme(theme_name)
+
     out = Path(output_path)
 
-    if fmt == "mp4":
-        # Use Scene.render() for MP4 (full pipeline with progress bar)
-        if theme_name != scene._theme:
-            scene._theme = theme_name
-        result_path = scene.render(output_file=str(out), show_progress=True)
-        print(f"✓ Exported MP4: {result_path}")  # noqa: T201
-    else:
-        # For non-MP4 formats, we need to manually run phases 1-3
-        all_nodes, all_connections = scene._collect_topology()
-        layout = resolve_layout(
-            nodes=all_nodes,
-            connections=all_connections,
-            canvas_width=scene._canvas_width,
-            canvas_height=scene._canvas_height,
-        )
-        timeline = compile_timeline(
-            play_calls=scene._play_calls,
-            total_duration=scene._current_time,
-            fps=scene._fps,
-        )
-
-        theme = get_theme(theme_name)
-        node_labels = {n.id: n.label for n in all_nodes}
-        node_types = {n.id: n.primitive_type for n in all_nodes}
-        conn_labels = {c.id: c.label for c in all_connections}
-
-        if fmt == "lottie":
-            export_lottie(
-                timeline=timeline, layout=layout, theme=theme,
-                node_labels=node_labels, node_types=node_types,
-                connection_labels=conn_labels, output_path=out,
-                minify=getattr(args, "minify", False),
-            )
-            print(f"✓ Exported Lottie JSON: {out}")  # noqa: T201
+    try:
+        if fmt == "mp4":
+            result_path = scene.render(output_file=str(out), show_progress=True)
+        elif fmt == "lottie":
+            result_path = scene.export(str(out), minify=getattr(args, "minify", False))
         elif fmt == "svg":
-            export_svg(
-                timeline=timeline, layout=layout, theme=theme,
-                node_labels=node_labels, node_types=node_types,
-                connection_labels=conn_labels, output_path=out,
-            )
-            print(f"✓ Exported SVG: {out}")  # noqa: T201
-        elif fmt == "html":
-            export_html_player(
-                timeline=timeline, layout=layout, theme=theme,
-                node_labels=node_labels, node_types=node_types,
-                connection_labels=conn_labels, output_path=out,
-            )
-            print(f"✓ Exported HTML Player: {out}")  # noqa: T201
+            result_path = scene.export(str(out))
+        else:  # html
+            result_path = scene.export(str(out), title=out.stem)
+    except Exception as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
 
+    label = {"mp4": "MP4", "lottie": "Lottie JSON", "svg": "SVG", "html": "HTML Player"}[fmt]
+    print(f"Exported {label}: {result_path}")
     return 0
 
 
@@ -222,7 +187,7 @@ def _default_output(input_path: str, format_override: str | None) -> str:
 
 def _cmd_version(_args: argparse.Namespace) -> int:
     """Print version information."""
-    print(f"archmotion {__version__}")  # noqa: T201
+    print(f"archmotion {__version__}")
     return 0
 
 
@@ -233,12 +198,12 @@ def _cmd_version(_args: argparse.Namespace) -> int:
 
 def _cmd_themes(_args: argparse.Namespace) -> int:
     """List available themes."""
-    from archmotion.renderer.theme import THEMES
+    from archmotion.render.theme import THEMES
 
-    print("Available themes:")  # noqa: T201
-    for name, config in THEMES.items():
+    print("Available themes:")
+    for name in THEMES:
         marker = " (default)" if name == "dark_terminal" else ""
-        print(f"  • {name}{marker}")  # noqa: T201
+        print(f"  - {name}{marker}")
     return 0
 
 

@@ -304,8 +304,7 @@ class TestRouterWithObstacles:
 class TestResolverRouting:
     def test_three_node_route_avoids_middle(self):
         """A→C with B in the middle should route around B."""
-        from archmotion.api.connections import Connection
-        from archmotion.api.primitives import Node
+        from archmotion.domains.architecture import Connection, Node
         from archmotion.layout.resolver import resolve_layout
 
         a = Node("A")

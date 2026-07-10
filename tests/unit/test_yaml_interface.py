@@ -23,14 +23,11 @@ from archmotion.ai.schema import (
     AnimationSpec,
     ConnectionSpec,
     NodeSpec,
-    PositionSpec,
     RelativePositionSpec,
     SceneSpec,
     StepSpec,
 )
-from archmotion.api.primitives import Cloud, Database, Node
-from archmotion.api.scene import Scene
-
+from archmotion.core.scene import Scene
 
 # ──────────────────────────────────────────────
 # Fixtures: minimal valid YAML / spec

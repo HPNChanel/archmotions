@@ -143,7 +143,11 @@ def build_html(scene: Scene, *, title: str = "ArchMotion Animation") -> str:
 
     bg = theme.background_rgba
     bg_css = f"rgb({int(bg[0] * 255)},{int(bg[1] * 255)},{int(bg[2] * 255)})"
-    surface_css = f"rgb({int(min(bg[0] + 0.05, 1.0) * 255)},{int(min(bg[1] + 0.05, 1.0) * 255)},{int(min(bg[2] + 0.05, 1.0) * 255)})"
+    surface_css = (
+        f"rgb({int(min(bg[0] + 0.05, 1.0) * 255)},"
+        f"{int(min(bg[1] + 0.05, 1.0) * 255)},"
+        f"{int(min(bg[2] + 0.05, 1.0) * 255)})"
+    )
     w, h = scene.resolution
 
     return _HTML_TEMPLATE.format(
