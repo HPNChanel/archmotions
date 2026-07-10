@@ -25,39 +25,11 @@ from archmotion.constants import (
     Z_NODE,
 )
 from archmotion.errors import TopologyError
+from archmotion.layout.positions import AbsolutePosition, RelativePosition
 
-
-@dataclass
-class RelativePosition:
-    """Records a spatial relationship between two nodes.
-
-    Attributes:
-        anchor_id: ID of the reference node.
-        direction: Which side of the anchor this node sits on.
-        distance: Distance in grid units (converted to pixels in Phase 2).
-    """
-
-    anchor_id: str
-    direction: Direction
-    distance: float
-
-
-@dataclass
-class AbsolutePosition:
-    """Records an absolute (freeform) pixel position for a node.
-
-    Used by the visual editor (ArchMotion Studio) where nodes are placed by
-    dragging rather than relative to an anchor. The coordinate origin is the
-    top-left corner of the canvas (y grows downward), matching the SVG/Canvas
-    coordinate space used throughout the layout + render pipeline.
-
-    Attributes:
-        x: Left edge X coordinate (pixels).
-        y: Top edge Y coordinate (pixels).
-    """
-
-    x: float
-    y: float
+# Re-export so existing `from archmotion.api.primitives import AbsolutePosition`
+# imports keep working (the canonical home is now archmotion.layout.positions).
+__all_reexports__ = ("AbsolutePosition", "RelativePosition")
 
 
 @dataclass

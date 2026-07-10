@@ -42,7 +42,7 @@ class FrameSpec:
 
 def render_frame(spec: FrameSpec) -> bytes:
     """Render a single frame → raw RGBA bytes."""
-    from archmotion.renderer.canvas import SkiaCanvas, rgba_to_color4f
+    from archmotion.render.canvas import SkiaCanvas, rgba_to_color4f
 
     canvas = SkiaCanvas(spec.width, spec.height)
     try:

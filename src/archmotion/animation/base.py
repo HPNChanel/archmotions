@@ -35,12 +35,22 @@ if TYPE_CHECKING:
 class Animation:
     """Base animation. Subclasses implement ``targets``, ``compile``, hooks."""
 
-    def __init__(self, run_time: float = 1.0, rate_func: str = easing.DEFAULT_EASING) -> None:
-        """Validate run_time and store the easing name."""
-        if run_time <= 0:
-            msg = f"run_time must be positive, got {run_time}"
+    def __init__(
+        self,
+        run_time: float = 1.0,
+        rate_func: str = easing.DEFAULT_EASING,
+        duration: float | None = None,
+    ) -> None:
+        """Validate run_time and store the easing name.
+
+        ``duration`` is a v1-compat alias for ``run_time`` (takes precedence if
+        given).
+        """
+        rt = duration if duration is not None else run_time
+        if rt <= 0:
+            msg = f"run_time must be positive, got {rt}"
             raise ValueError(msg)
-        self.run_time = run_time
+        self.run_time = rt
         self.rate_func = rate_func
 
     def targets(self) -> list[Graphic]:
@@ -92,9 +102,10 @@ class FadeIn(Animation):
         *targets: Graphic,
         run_time: float = 0.5,
         rate_func: str = "ease_out",
+        duration: float | None = None,
     ) -> None:
         """Store targets + timing for a fade-in."""
-        super().__init__(run_time=run_time, rate_func=rate_func)
+        super().__init__(run_time=run_time, rate_func=rate_func, duration=duration)
         if not targets:
             msg = "FadeIn requires at least one target."
             raise TypeError(msg)
@@ -131,9 +142,10 @@ class FadeOut(Animation):
         *targets: Graphic,
         run_time: float = 0.5,
         rate_func: str = "ease_in",
+        duration: float | None = None,
     ) -> None:
         """Store targets + timing for a fade-out."""
-        super().__init__(run_time=run_time, rate_func=rate_func)
+        super().__init__(run_time=run_time, rate_func=rate_func, duration=duration)
         if not targets:
             msg = "FadeOut requires at least one target."
             raise TypeError(msg)
@@ -160,9 +172,15 @@ class FadeOut(Animation):
 class Create(Animation):
     """Progressively draw a vector graphic's outline (stroke 0 → 1)."""
 
-    def __init__(self, target: Graphic, run_time: float = 1.0, rate_func: str = "smooth") -> None:
+    def __init__(
+        self,
+        target: Graphic,
+        run_time: float = 1.0,
+        rate_func: str = "smooth",
+        duration: float | None = None,
+    ) -> None:
         """Store the target + timing for a progressive draw."""
-        super().__init__(run_time=run_time, rate_func=rate_func)
+        super().__init__(run_time=run_time, rate_func=rate_func, duration=duration)
         self._target = target
 
     def targets(self) -> list[Graphic]:
@@ -201,9 +219,10 @@ class Transform(Animation):
         target: VMobject,
         run_time: float = 1.0,
         rate_func: str = "smooth",
+        duration: float | None = None,
     ) -> None:
         """Store source/target + timing for a point morph."""
-        super().__init__(run_time=run_time, rate_func=rate_func)
+        super().__init__(run_time=run_time, rate_func=rate_func, duration=duration)
         self._source = source
         self._target = target
         self._aligned_src: object | None = None
@@ -260,9 +279,14 @@ class StateTween(Animation):
         target: Graphic,
         run_time: float | None = None,
         rate_func: str = easing.DEFAULT_EASING,
+        duration: float | None = None,
     ) -> None:
         """Store source/target + timing for a state tween."""
-        super().__init__(run_time=run_time if run_time is not None else 1.0, rate_func=rate_func)
+        super().__init__(
+            run_time=run_time if run_time is not None else 1.0,
+            rate_func=rate_func,
+            duration=duration,
+        )
         self._source = source
         self._target = target
         self._src_world: object | None = None
@@ -376,6 +400,7 @@ class AnimationGroup(Animation):
         lag_ratio: float = 0.0,
         run_time: float | None = None,
         rate_func: str = easing.DEFAULT_EASING,
+        duration: float | None = None,
     ) -> None:
         """Store children + stagger; compute total run_time if not given."""
         if not animations:
@@ -386,6 +411,7 @@ class AnimationGroup(Animation):
         super().__init__(
             run_time=run_time if run_time is not None else self._compute_duration(),
             rate_func=rate_func,
+            duration=duration,
         )
 
     def _compute_duration(self) -> float:

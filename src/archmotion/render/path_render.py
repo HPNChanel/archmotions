@@ -84,6 +84,17 @@ def resolve_effective(
     anim = Transform.identity()
     pos_x = scalars.get(Property.POSITION_X)
     pos_y = scalars.get(Property.POSITION_Y)
+    # A packet travelling along a connection derives its position from
+    # PATH_PROGRESS (its connection's resolved route).
+    path_progress = scalars.get(Property.PATH_PROGRESS)
+    if path_progress is not None:
+        connection = getattr(graphic, "connection", None)
+        if connection is not None:
+            route_x, route_y = connection.point_at_progress(path_progress)
+            if pos_x is None:
+                pos_x = route_x
+            if pos_y is None:
+                pos_y = route_y
     if pos_x is not None or pos_y is not None:
         tx = pos_x - cx if pos_x is not None else 0.0
         ty = pos_y - cy if pos_y is not None else 0.0
@@ -260,9 +271,9 @@ def paint_effective(native: Any, state: EffectiveState) -> None:  # noqa: ANN401
         native.restore()
 
 
-def _trim_path(path: Any, progress: float) -> Any:
+def _trim_path(path: object, progress: float) -> object:
     """Return the first ``progress`` fraction of a skia path (for Create)."""
-    import skia  # noqa: PLC0415
+    import skia
 
     measure = skia.PathMeasure(path, False)
     total = measure.getLength()
@@ -274,6 +285,6 @@ def _trim_path(path: Any, progress: float) -> Any:
 
 
 def _hex4f(hex_color: str, opacity: float = 1.0) -> object:
-    from archmotion.renderer.canvas import hex_to_color4f
+    from archmotion.render.canvas import hex_to_color4f
 
     return hex_to_color4f(hex_color, opacity)

@@ -7,7 +7,6 @@ import pytest
 from archmotion.animation import ColorShift, FadeIn, Highlight, Pulse, Scale, Transfer
 from archmotion.core import Property, Scene
 from archmotion.domains.architecture import Connection, Node
-from archmotion.domains.geometry import Dot
 
 
 def test_pulse_emits_ramp_up_and_down():
@@ -60,11 +59,12 @@ def test_transfer_emits_path_progress():
     a = Node("A", center=(0.0, 0.0))
     b = Node("B", center=(300.0, 0.0))
     conn = Connection(a, b)
-    packet = Dot((0.0, 0.0))
     sc = Scene(fps=30)
-    sc.add(a, b, conn, packet)
-    sc.play(FadeIn(a, b), Transfer(packet, conn, run_time=1.0))
+    sc.add(a, b, conn)
+    sc.play(FadeIn(a, b), Transfer(conn, run_time=1.0))
     tl = sc.compile_timeline()
     progress = [act for act in tl.property_actions if act.prop == Property.PATH_PROGRESS]
     assert progress
-    assert progress[0].target_id == packet.id
+    # Transfer auto-creates a Packet bound to the connection.
+    assert progress[0].target_id != a.id
+    assert progress[0].target_id != b.id

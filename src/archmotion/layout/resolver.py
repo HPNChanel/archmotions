@@ -23,10 +23,9 @@ from __future__ import annotations
 
 from collections import defaultdict, deque
 from dataclasses import dataclass
+from typing import TYPE_CHECKING, Protocol
 
 from archmotion._types import Direction, Point
-from archmotion.api.connections import Connection
-from archmotion.api.primitives import AbsolutePosition, Node
 from archmotion.constants import GRID_UNIT
 from archmotion.errors import (
     CircularReferenceError,
@@ -35,7 +34,53 @@ from archmotion.errors import (
     OverflowCanvasError,
 )
 from archmotion.layout.bbox import BoundingBox, estimate_text_bbox
+from archmotion.layout.positions import AbsolutePosition, RelativePosition
 from archmotion.layout.router import manhattan_route
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+# ──────────────────────────────────────────────
+# Structural protocols (v1 + v2 nodes both fit)
+# ──────────────────────────────────────────────
+
+
+class _Endpoint(Protocol):
+    """A node endpoint of a connection — anything with an ``id``."""
+
+    id: str
+
+
+class LayoutNode(Protocol):
+    """A placeable node: an id, a label, and an optional position constraint.
+
+    Both v1 ``api.primitives.Node`` and v2 ``domains.architecture`` primitives
+    satisfy this, so the resolver is domain-agnostic.
+    """
+
+    id: str
+    label: str
+    position: RelativePosition | AbsolutePosition | None
+
+
+class LayoutConnection(Protocol):
+    """A directed link between two node endpoints.
+
+    ``source``/``target`` are declared as read-only properties so a concrete
+    connection with plain ``source``/``target`` fields matches covariantly
+    (protocol *variables* would require an exact, invariant type match).
+    """
+
+    id: str
+    waypoints: list[Point] | None
+
+    @property
+    def source(self) -> _Endpoint:
+        """The connection's source node."""
+
+    @property
+    def target(self) -> _Endpoint:
+        """The connection's target node."""
 
 # ──────────────────────────────────────────────
 # Output Data Structure
@@ -72,7 +117,7 @@ class _LayoutNode:
     centering offset), and computed BoundingBox.
     """
 
-    node: Node
+    node: LayoutNode
     center_x: float = 0.0
     center_y: float = 0.0
     bbox: BoundingBox | None = None
@@ -86,8 +131,8 @@ class _LayoutNode:
 
 
 def resolve_layout(
-    nodes: list[Node],
-    connections: list[Connection],
+    nodes: Sequence[LayoutNode],
+    connections: Sequence[LayoutConnection],
     canvas_width: int,
     canvas_height: int,
 ) -> ResolvedLayout:
@@ -155,7 +200,7 @@ def resolve_layout(
 # ──────────────────────────────────────────────
 
 
-def _build_graph(nodes: list[Node]) -> dict[str, _LayoutNode]:
+def _build_graph(nodes: Sequence[LayoutNode]) -> dict[str, _LayoutNode]:
     """Build an ID-keyed lookup of _LayoutNodes. Validates uniqueness.
 
     Args:
@@ -184,7 +229,7 @@ def _build_graph(nodes: list[Node]) -> dict[str, _LayoutNode]:
 
 def _topological_sort(
     layout_nodes: dict[str, _LayoutNode],
-    nodes: list[Node],
+    nodes: Sequence[LayoutNode],
 ) -> list[str]:
     """Topological sort of nodes based on position dependencies.
 
@@ -232,14 +277,11 @@ def _topological_sort(
             dependents[anchor_id].append(node.id)
             in_degree[node.id] += 1
 
-    # Orphan detection: if there are positioned nodes AND multiple roots
-    # that means some roots are unintentional (user forgot to position)
+    # Orphan detection: when positioned nodes coexist with multiple roots, the
+    # extra roots are auto-placed side by side (multiple roots are allowed), so
+    # no error is raised here. The counters are retained for future diagnostics.
     if positioned_count > 0 and root_count > 1:
-        # Find the "extra" roots (exclude the first one which is the anchor)
-        roots = [n for n in nodes if n.position is None]
-        # Allow multiple roots — they'll be placed side by side
-        # Only flag as orphan if a root's ID is referenced by nobody
-        # and it references nobody. For MVP, multiple roots are fine.
+        # Multiple roots are intentionally permitted (auto side-by-side layout).
         pass
 
     # Kahn's algorithm
@@ -485,7 +527,7 @@ def _check_overflow(
 
 
 def _route_connections(
-    connections: list[Connection],
+    connections: Sequence[LayoutConnection],
     node_boxes: dict[str, BoundingBox],
 ) -> dict[str, list[Point]]:
     """Route all connections using obstacle-aware Manhattan routing.

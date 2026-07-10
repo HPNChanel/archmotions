@@ -19,8 +19,8 @@ from archmotion.core.property import MorphAction, Property, PropertyAction
 
 if TYPE_CHECKING:
     from archmotion.core.graphic import Graphic
-    from archmotion.core.vmobject import VMobject
     from archmotion.domains.architecture.connections import Connection
+    from archmotion.domains.architecture.packet import Packet
 
 
 def _hex_to_rgb01(color: str | None) -> tuple[float, float, float]:
@@ -39,33 +39,46 @@ def _hex_to_rgb01(color: str | None) -> tuple[float, float, float]:
 
 
 class Transfer(Animation):
-    """Move a packet graphic along a connection's route (data-flow)."""
+    """Move a packet along a connection's route (data-flow).
+
+    A :class:`~archmotion.domains.architecture.packet.Packet` is created by
+    default and bound to ``connection``; pass ``packet=`` to supply a custom one.
+    """
 
     def __init__(
         self,
-        packet: VMobject,
         connection: Connection,
         *,
+        packet: Packet | None = None,
+        payload: str | None = None,
+        color: str | None = None,
         run_time: float = 1.0,
         rate_func: str = easing.DEFAULT_EASING,
         reverse: bool = False,
+        duration: float | None = None,
     ) -> None:
-        """Store packet + connection + direction."""
-        super().__init__(run_time=run_time, rate_func=rate_func)
-        self._packet = packet
+        """Store connection + packet + direction; auto-create a packet if none."""
+        super().__init__(run_time=run_time, rate_func=rate_func, duration=duration)
         self._connection = connection
         self._reverse = reverse
+        if packet is None:
+            from archmotion.domains.architecture.packet import Packet
+
+            packet = Packet(label=payload or "", connection=connection, color=color)
+        else:
+            packet.connection = connection
+        self._packet = packet
 
     def targets(self) -> list[Graphic]:
         """The packet is the animated target."""
         return [self._packet]
 
     def begin(self) -> None:
-        """Place the packet at the route start."""
+        """Reveal the packet at the route start."""
         self._packet.opacity = 1.0
 
     def compile(self, start_time: float) -> list[PropertyAction | MorphAction]:
-        """Emit a PATH_PROGRESS action along the connection's id."""
+        """Emit a PATH_PROGRESS action for the packet along the connection."""
         end_time = start_time + self.run_time
         start_val = 1.0 if self._reverse else 0.0
         end_val = 0.0 if self._reverse else 1.0
@@ -81,6 +94,10 @@ class Transfer(Animation):
             )
         ]
 
+    def finish(self) -> None:
+        """Hide the packet after the transfer completes."""
+        self._packet.opacity = 0.0
+
 
 class Pulse(Animation):
     """Ramp a glow up to peak intensity, then back down."""
@@ -93,9 +110,10 @@ class Pulse(Animation):
         intensity: float = 0.8,
         run_time: float = 0.5,
         rate_func: str = "ease_out",
+        duration: float | None = None,
     ) -> None:
         """Store target + glow parameters."""
-        super().__init__(run_time=run_time, rate_func=rate_func)
+        super().__init__(run_time=run_time, rate_func=rate_func, duration=duration)
         self._target = target
         self._color = color
         self._intensity = intensity
@@ -140,9 +158,10 @@ class Highlight(Animation):
         intensity: float = 0.8,
         run_time: float = 2.0,
         rate_func: str = "ease_in",
+        duration: float | None = None,
     ) -> None:
         """Store target + glow parameters."""
-        super().__init__(run_time=run_time, rate_func=rate_func)
+        super().__init__(run_time=run_time, rate_func=rate_func, duration=duration)
         self._target = target
         self._intensity = intensity
 
@@ -187,9 +206,10 @@ class ColorShift(Animation):
         *,
         run_time: float = 1.0,
         rate_func: str = easing.DEFAULT_EASING,
+        duration: float | None = None,
     ) -> None:
         """Store target + color endpoints."""
-        super().__init__(run_time=run_time, rate_func=rate_func)
+        super().__init__(run_time=run_time, rate_func=rate_func, duration=duration)
         self._target = target
         self._from = _hex_to_rgb01(from_color)
         self._to = _hex_to_rgb01(to_color)
@@ -237,9 +257,10 @@ class Scale(Animation):
         *,
         run_time: float = 0.3,
         rate_func: str = "ease_out",
+        duration: float | None = None,
     ) -> None:
         """Store target + factor."""
-        super().__init__(run_time=run_time, rate_func=rate_func)
+        super().__init__(run_time=run_time, rate_func=rate_func, duration=duration)
         self._target = target
         self._factor = factor
 

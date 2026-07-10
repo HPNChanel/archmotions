@@ -13,8 +13,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from archmotion._types import Direction
+from archmotion.constants import DEFAULT_DISTANCE, MAX_DISTANCE, MIN_DISTANCE
 from archmotion.core.vmobject import VMobject
+from archmotion.errors import TopologyError
 from archmotion.layout.bbox import estimate_text_bbox
+from archmotion.layout.positions import AbsolutePosition, RelativePosition
 
 if TYPE_CHECKING:
     from archmotion._types import Point
@@ -48,7 +52,65 @@ class Node(VMobject):
         self.height = height if height is not None else eh
         self.center = center
         self.corner_radius = corner_radius
+        # Positioning constraint — resolved to pixel coordinates by the layout
+        # resolver (see resolve_architecture). None means "manual center" or
+        # "auto-placed root".
+        self.position: RelativePosition | AbsolutePosition | None = None
         super().__init__()
+
+    # ── relative / absolute positioning (mirrors the v1 fluent API) ──
+
+    def _ensure_unpositioned(self, attempting: str) -> None:
+        """Raise TopologyError if this node already has a position constraint."""
+        if self.position is not None:
+            if isinstance(self.position, AbsolutePosition):
+                existing = f"absolute position ({self.position.x:.0f}, {self.position.y:.0f})"
+            else:
+                existing = (
+                    f"relative position (anchor '{self.position.anchor_id}', "
+                    f"{self.position.direction.name.lower()})"
+                )
+            msg = (
+                f"Node '{self.label}' already has a {existing}. "
+                f"Each Node can only be positioned once (cannot call {attempting})."
+            )
+            raise TopologyError(msg)
+
+    def _set_relative(self, anchor: Node, direction: Direction, distance: float) -> Node:
+        """Record a relative position constraint relative to ``anchor``."""
+        self._ensure_unpositioned(attempting=f"{direction.name.lower()}()")
+        if not MIN_DISTANCE <= distance <= MAX_DISTANCE:
+            msg = f"Distance must be between {MIN_DISTANCE} and {MAX_DISTANCE}, got {distance}"
+            raise ValueError(msg)
+        self.position = RelativePosition(
+            anchor_id=anchor.id, direction=direction, distance=distance
+        )
+        return self
+
+    def at(self, x: float, y: float) -> Node:
+        """Position this node at an absolute top-left pixel coordinate."""
+        if x < 0 or y < 0:
+            msg = f"Absolute position must be non-negative, got ({x}, {y})"
+            raise ValueError(msg)
+        self._ensure_unpositioned(attempting="at()")
+        self.position = AbsolutePosition(x=float(x), y=float(y))
+        return self
+
+    def right_of(self, anchor: Node, distance: float = DEFAULT_DISTANCE) -> Node:
+        """Place this node to the right of ``anchor`` (distance in grid units)."""
+        return self._set_relative(anchor, Direction.RIGHT_OF, distance)
+
+    def left_of(self, anchor: Node, distance: float = DEFAULT_DISTANCE) -> Node:
+        """Place this node to the left of ``anchor`` (distance in grid units)."""
+        return self._set_relative(anchor, Direction.LEFT_OF, distance)
+
+    def above(self, anchor: Node, distance: float = 2.0) -> Node:
+        """Place this node above ``anchor`` (distance in grid units)."""
+        return self._set_relative(anchor, Direction.ABOVE, distance)
+
+    def below(self, anchor: Node, distance: float = 2.0) -> Node:
+        """Place this node below ``anchor`` (distance in grid units)."""
+        return self._set_relative(anchor, Direction.BELOW, distance)
 
     def generate_points(self) -> None:
         """Trace a rounded rectangle (four edges + four corner arcs)."""
@@ -69,7 +131,7 @@ class Node(VMobject):
         self.close_path()
 
 
-class Database(VMobject):
+class Database(Node):
     """A cylinder (storage) — a body rectangle capped by two ellipses."""
 
     def __init__(
@@ -80,13 +142,8 @@ class Database(VMobject):
         height: float | None = None,
         center: Point = (0.0, 0.0),
     ) -> None:
-        """Store label/size/center, then generate the cylinder outline."""
-        self.label = label
-        ew, eh = _node_size(label) if (width is None or height is None) else (width, height)
-        self.width = width if width is not None else ew
-        self.height = height if height is not None else eh
-        self.center = center
-        super().__init__()
+        """Inherit positioning from Node, then generate the cylinder outline."""
+        super().__init__(label=label, width=width, height=height, center=center)
 
     def generate_points(self) -> None:
         """Body rectangle + top ellipse + bottom ellipse (three contours)."""
@@ -106,7 +163,7 @@ class Database(VMobject):
         _ellipse_contour(self, cx, y0 + h - cap, w / 2.0, cap)
 
 
-class Queue(VMobject):
+class Queue(Node):
     """A parallelogram (message queue)."""
 
     def __init__(
@@ -117,13 +174,8 @@ class Queue(VMobject):
         height: float | None = None,
         center: Point = (0.0, 0.0),
     ) -> None:
-        """Store label/size/center, then generate the parallelogram outline."""
-        self.label = label
-        ew, eh = _node_size(label) if (width is None or height is None) else (width, height)
-        self.width = width if width is not None else ew
-        self.height = height if height is not None else eh
-        self.center = center
-        super().__init__()
+        """Inherit positioning from Node, then generate the parallelogram outline."""
+        super().__init__(label=label, width=width, height=height, center=center)
 
     def generate_points(self) -> None:
         """Trace the four skewed corners and close."""
@@ -138,7 +190,7 @@ class Queue(VMobject):
         self.close_path()
 
 
-class Cache(VMobject):
+class Cache(Node):
     """A diamond (cache layer)."""
 
     def __init__(
@@ -149,13 +201,8 @@ class Cache(VMobject):
         height: float | None = None,
         center: Point = (0.0, 0.0),
     ) -> None:
-        """Store label/size/center, then generate the diamond outline."""
-        self.label = label
-        ew, eh = _node_size(label) if (width is None or height is None) else (width, height)
-        self.width = width if width is not None else ew
-        self.height = height if height is not None else eh
-        self.center = center
-        super().__init__()
+        """Inherit positioning from Node, then generate the diamond outline."""
+        super().__init__(label=label, width=width, height=height, center=center)
 
     def generate_points(self) -> None:
         """Trace the four diamond vertices and close."""
@@ -168,7 +215,7 @@ class Cache(VMobject):
         self.close_path()
 
 
-class Cloud(VMobject):
+class Cloud(Node):
     """A cloud contour (external service) — four cubic Bezier humps."""
 
     def __init__(
@@ -179,13 +226,11 @@ class Cloud(VMobject):
         height: float | None = None,
         center: Point = (0.0, 0.0),
     ) -> None:
-        """Store label/size/center, then generate the cloud outline."""
-        self.label = label
+        """Inherit positioning from Node; pad size, then generate the cloud outline."""
         ew, eh = _node_size(label) if (width is None or height is None) else (width, height)
-        self.width = (width if width is not None else ew) * CLOUD_PADDING
-        self.height = (height if height is not None else eh) * CLOUD_PADDING
-        self.center = center
-        super().__init__()
+        w = (width if width is not None else ew) * CLOUD_PADDING
+        h = (height if height is not None else eh) * CLOUD_PADDING
+        super().__init__(label=label, width=w, height=h, center=center)
 
     def generate_points(self) -> None:
         """Trace the classic 4-hump cloud silhouette with cubic Beziers."""
@@ -218,7 +263,7 @@ class Cloud(VMobject):
         self.close_path()
 
 
-class User(VMobject):
+class User(Node):
     """A person icon (head circle + body trapezoid)."""
 
     def __init__(
@@ -229,13 +274,8 @@ class User(VMobject):
         height: float | None = None,
         center: Point = (0.0, 0.0),
     ) -> None:
-        """Store label/size/center, then generate the person silhouette."""
-        self.label = label
-        ew, eh = _node_size(label) if (width is None or height is None) else (width, height)
-        self.width = width if width is not None else ew
-        self.height = height if height is not None else eh
-        self.center = center
-        super().__init__()
+        """Inherit positioning from Node, then generate the person silhouette."""
+        super().__init__(label=label, width=width, height=height, center=center)
 
     def generate_points(self) -> None:
         """Head circle (contour 1) + body trapezoid (contour 2)."""
