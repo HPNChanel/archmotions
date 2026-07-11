@@ -13,8 +13,6 @@ from __future__ import annotations
 import io
 import logging
 
-import pytest
-
 from archmotion.dx._errors import (
     _FIX_SUGGESTIONS,
     _PHASE_MAP,
@@ -24,17 +22,12 @@ from archmotion.dx._errors import (
 from archmotion.dx._logging import get_logger, setup_logging
 from archmotion.dx._progress import RenderProgress, create_progress_callback
 from archmotion.errors import (
-    ArchMotionError,
     DuplicateIdError,
     EmptyTimelineError,
     FFmpegCrashError,
     FFmpegNotFoundError,
-    InvalidConnectionError,
     OrphanNodeError,
-    OverflowCanvasError,
-    SkiaAllocationError,
 )
-
 
 # ══════════════════════════════════════════════
 # RenderProgress
@@ -233,7 +226,7 @@ class TestSceneRenderShowProgress:
 
     def test_render_accepts_show_progress_param(self):
         """Verify Scene.render() accepts show_progress without error."""
-        from archmotion.api.scene import Scene
+        from archmotion.core.scene import Scene
 
         scene = Scene()
         # Just verify the method signature accepts the param
@@ -241,11 +234,11 @@ class TestSceneRenderShowProgress:
         sig = inspect.signature(scene.render)
         assert "show_progress" in sig.parameters
 
-    def test_show_progress_default_true(self):
-        """Verify show_progress defaults to True."""
-        from archmotion.api.scene import Scene
+    def test_show_progress_default_false(self):
+        """Verify show_progress defaults to False (v2: opt-in progress)."""
+        from archmotion.core.scene import Scene
 
         scene = Scene()
         import inspect
         sig = inspect.signature(scene.render)
-        assert sig.parameters["show_progress"].default is True
+        assert sig.parameters["show_progress"].default is False

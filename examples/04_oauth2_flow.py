@@ -9,9 +9,7 @@ Visualizes the full OAuth2 Authorization Code Grant sequence:
 Output: oauth2_flow.mp4
 """
 
-from archmotion import Connection, Node, Scene
-from archmotion.api.primitives import User
-from archmotion.motions import FadeIn, Pulse, Transfer
+from archmotion import Connection, FadeIn, Node, Pulse, Scene, Transfer, User
 
 
 def main() -> None:

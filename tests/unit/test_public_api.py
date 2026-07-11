@@ -9,7 +9,6 @@ Tests cover:
 
 import json
 import tempfile
-from pathlib import Path
 
 import pytest
 
@@ -34,15 +33,9 @@ from archmotion import (
     load_yaml,
     parse_yaml_string,
 )
-from archmotion.exporter import (
-    ExportResult,
-    build_lottie_json,
-    export_html_player,
-    export_lottie,
-    export_svg,
-    export_video,
-)
-
+from archmotion.exporter.html_v2 import build_html
+from archmotion.exporter.lottie_v2 import build_lottie
+from archmotion.exporter.svg_v2 import build_svg
 
 # ──────────────────────────────────────────────
 # Import Tests
@@ -74,20 +67,14 @@ class TestTopLevelImports:
 
 
 class TestExporterImports:
-    def test_export_video_importable(self):
-        assert callable(export_video)
+    def test_build_lottie_importable(self):
+        assert callable(build_lottie)
 
-    def test_export_lottie_importable(self):
-        assert callable(export_lottie)
+    def test_build_svg_importable(self):
+        assert callable(build_svg)
 
-    def test_export_svg_importable(self):
-        assert callable(export_svg)
-
-    def test_export_html_importable(self):
-        assert callable(export_html_player)
-
-    def test_build_lottie_json_importable(self):
-        assert callable(build_lottie_json)
+    def test_build_html_importable(self):
+        assert callable(build_html)
 
 
 # ──────────────────────────────────────────────

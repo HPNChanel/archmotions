@@ -6,9 +6,7 @@ This is the reference script used for acceptance testing (PRD DoD-01).
 Output: login_flow.mp4
 """
 
-from archmotion import Database, Node, Scene
-from archmotion.connections import Connection
-from archmotion.motions import FadeIn, Pulse, Transfer
+from archmotion import Connection, Database, FadeIn, Node, Pulse, Scene, Transfer
 
 
 def build_login_flow() -> None:

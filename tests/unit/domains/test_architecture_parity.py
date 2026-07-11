@@ -13,8 +13,6 @@ from itertools import pairwise
 import pytest
 
 from archmotion.animation import FadeIn, Transfer
-from archmotion.api.connections import Connection as V1Connection
-from archmotion.api.primitives import Node as V1Node
 from archmotion.core import Property, Scene
 from archmotion.core.camera import Camera
 from archmotion.core.transform import Transform as AffineTransform
@@ -35,7 +33,6 @@ from archmotion.errors import (
     OverflowCanvasError,
     TopologyError,
 )
-from archmotion.layout.resolver import resolve_layout
 from archmotion.render.path_render import resolve_effective
 
 CANVAS_W, CANVAS_H = 1280, 720
@@ -91,31 +88,26 @@ def _boxes_by_label(scene: Scene) -> dict[str, tuple[float, float, float, float]
     return out
 
 
-def test_v2_layout_matches_v1_geometry():
-    # v2 scene
-    v2 = Scene(resolution=(CANVAS_W, CANVAS_H), fps=30)
-    client = Node("Client")
-    server = Node("API Server").right_of(client, distance=4)
-    db = Database("PostgreSQL").right_of(server, distance=3)
-    v2.add(client, server, db, Connection(client, server), Connection(server, db))
-    v2_boxes = _boxes_by_label(v2)
+def test_layout_is_deterministic_and_centered():
+    """The same topology resolves identically twice and is canvas-centered."""
+    def _build() -> dict[str, tuple[float, float]]:
+        scene = Scene(resolution=(CANVAS_W, CANVAS_H), fps=30)
+        client = Node("Client")
+        server = Node("API Server").right_of(client, distance=4)
+        db = Database("PostgreSQL").right_of(server, distance=3)
+        scene.add(client, server, db, Connection(client, server), Connection(server, db))
+        boxes = _boxes_by_label(scene)
+        return {label: (round(b[0], 2), round(b[1], 2)) for label, b in boxes.items()}
 
-    # Equivalent v1 topology
-    c1 = V1Node("Client")
-    s1 = V1Node("API Server").right_of(c1, distance=4)
-    d1 = V1Node("PostgreSQL").right_of(s1, distance=3)
-    v1_layout = resolve_layout(
-        [c1, s1, d1], [V1Connection(c1, s1), V1Connection(s1, d1)], CANVAS_W, CANVAS_H
-    )
-    v1_boxes = {
-        n.label: (v1_layout.node_boxes[n.id].x, v1_layout.node_boxes[n.id].y,
-                  v1_layout.node_boxes[n.id].width, v1_layout.node_boxes[n.id].height)
-        for n in (c1, s1, d1)
-    }
-
-    assert set(v2_boxes) == set(v1_boxes)
-    for label in v1_boxes:
-        assert v2_boxes[label] == pytest.approx(v1_boxes[label])
+    first = _build()
+    second = _build()
+    # Deterministic: identical on rebuild.
+    assert first == second
+    # Ordered left-to-right along the chain.
+    assert first["Client"][0] < first["API Server"][0] < first["PostgreSQL"][0]
+    # Vertically centered on the canvas.
+    for _label, (_x, y) in first.items():
+        assert abs(y - CANVAS_H / 2) < 40.0
 
 
 def test_resolved_centers_applied_to_nodes():

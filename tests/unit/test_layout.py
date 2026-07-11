@@ -22,9 +22,7 @@ from archmotion.errors import (
     CircularReferenceError,
     OverflowCanvasError,
 )
-from archmotion.layout.bbox import BoundingBox
 from archmotion.layout.resolver import ResolvedLayout, resolve_layout
-
 
 # ──────────────────────────────────────────────
 # Helpers
@@ -292,7 +290,7 @@ class TestCircularReference:
 
         # Manually create cycle: A -> B -> A
         from archmotion._types import Direction
-        from archmotion.api.primitives import RelativePosition
+        from archmotion.layout.positions import RelativePosition
 
         a.position = RelativePosition(anchor_id=b.id, direction=Direction.RIGHT_OF, distance=3)
         b.position = RelativePosition(anchor_id=a.id, direction=Direction.RIGHT_OF, distance=3)

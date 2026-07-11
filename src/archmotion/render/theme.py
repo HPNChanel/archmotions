@@ -1,7 +1,6 @@
 """Theme configuration — color palette, font settings, visual constants.
 
-Canonical home for :class:`ThemeConfig` (v2.0). The legacy
-``archmotion.renderer.theme`` re-exports these for backward compatibility.
+Canonical home for :class:`ThemeConfig` (v2.0).
 
 v0.2.0 ships with 4 themes: dark_terminal (default), neon_cyber,
 blueprint, and light_paper. Theme selection is exposed through

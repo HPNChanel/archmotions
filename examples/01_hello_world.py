@@ -6,9 +6,7 @@ It creates two nodes, connects them, and animates a data transfer.
 Output: hello_world.mp4
 """
 
-from archmotion import Node, Scene
-from archmotion.connections import Connection
-from archmotion.motions import FadeIn, Transfer
+from archmotion import Connection, FadeIn, Node, Scene, Transfer
 
 
 def main() -> None:

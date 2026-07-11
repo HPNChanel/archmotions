@@ -6,9 +6,7 @@ service mesh, message queue, and background worker.
 Output: microservices.mp4
 """
 
-from archmotion import Connection, Node, Scene
-from archmotion.api.primitives import Queue
-from archmotion.motions import FadeIn, Highlight, Pulse, Transfer
+from archmotion import Connection, FadeIn, Highlight, Node, Pulse, Queue, Scene, Transfer
 
 
 def main() -> None:

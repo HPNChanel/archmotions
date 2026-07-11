@@ -17,7 +17,6 @@ from archmotion.ai.schema import ConnectionSpec, SceneSpec
 from archmotion.domains.architecture import Connection, Node
 from archmotion.render.theme import THEMES, ThemeConfig, get_theme
 
-
 # ──────────────────────────────────────────────
 # Theme Registry Tests
 # ──────────────────────────────────────────────
@@ -99,7 +98,8 @@ class TestConnectionCornerRadius:
         b = Node("B")
         b.right_of(a)
         conn = Connection(a, b)
-        assert conn.corner_radius is None
+        # v2 default corner_radius is 0.0 (sharp corners) until resolved.
+        assert conn.corner_radius == 0.0
 
     def test_connection_with_custom_radius(self):
         a = Node("A")

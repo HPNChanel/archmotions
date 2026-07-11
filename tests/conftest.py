@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from archmotion.api.connections import Connection
-from archmotion.api.primitives import Database, Node
-from archmotion.api.scene import Scene
+from archmotion.core.scene import Scene
+from archmotion.domains.architecture import Connection, Database, Node
 
 
 @pytest.fixture
@@ -36,6 +35,5 @@ def scene_with_topology() -> Scene:
     client = Node("Client")
     server = Node("API Server").right_of(client, distance=4)
     db = Database("PostgreSQL").below(server, distance=2)
-    Connection(client, server)
-    Connection(server, db)
+    scene.add(client, server, db, Connection(client, server), Connection(server, db))
     return scene

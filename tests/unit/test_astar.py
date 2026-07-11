@@ -7,7 +7,6 @@ Tests cover:
     - Resolver integration: end-to-end routing through node obstacles
 """
 
-import pytest
 
 from archmotion.layout.astar import (
     _bbox_corners,
@@ -21,7 +20,6 @@ from archmotion.layout.astar import (
 )
 from archmotion.layout.bbox import BoundingBox
 from archmotion.layout.router import manhattan_route
-
 
 # ──────────────────────────────────────────────
 # Helpers

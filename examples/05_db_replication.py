@@ -6,9 +6,16 @@ two Read Replicas using concurrent Transfer animations.
 Output: db_replication.mp4
 """
 
-from archmotion import Connection, Scene
-from archmotion.api.primitives import Database, Node
-from archmotion.motions import FadeIn, Highlight, Pulse, Transfer
+from archmotion import (
+    Connection,
+    Database,
+    FadeIn,
+    Highlight,
+    Node,
+    Pulse,
+    Scene,
+    Transfer,
+)
 
 
 def main() -> None:

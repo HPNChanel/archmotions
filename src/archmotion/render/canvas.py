@@ -1,7 +1,6 @@
 """Skia Canvas abstraction for frame rendering.
 
-Canonical home for the skia canvas wrapper + color utilities (v2.0). The legacy
-``archmotion.renderer.canvas`` re-exports these for backward compatibility.
+Canonical home for the skia canvas wrapper + color utilities (v2.0).
 
 CONTAINMENT: This module is the ONLY place that imports skia-python.
 All Skia Surface/Canvas lifecycle management happens here.

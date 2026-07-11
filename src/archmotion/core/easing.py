@@ -1,7 +1,7 @@
 """Easing functions keyed by name (v2.0 core).
 
-Reuses the same mathematics as ``archmotion.timeline.easing`` but keys the
-registry by string so animations can specify easing without importing an enum.
+Keys the registry by string so animations can specify easing without importing
+an enum.
 """
 
 from __future__ import annotations
