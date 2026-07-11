@@ -1,6 +1,7 @@
 # Examples
 
-Runnable example scripts demonstrating ArchMotion's capabilities. Each example produces a playable MP4 video.
+Runnable example scripts demonstrating ArchMotion v2.0's capabilities — from basic
+architecture animations to cross-domain fusion demos.
 
 ---
 
@@ -14,7 +15,7 @@ Minimal example: two nodes, one connection, one animation.
 
 ```python
 from archmotion import Scene, Node, Connection
-from archmotion.motions import FadeIn, Transfer
+from archmotion import FadeIn, Transfer
 
 gateway = Node("API Gateway")
 db = Node("Database")
@@ -46,7 +47,8 @@ Full login authentication flow: Client → Gateway → Auth Service → Database
 **Complexity:** ⭐⭐⭐
 **Nodes:** 5
 
-Real-world microservices topology with API Gateway, service mesh, message queue, and background worker.
+Real-world microservices topology with API Gateway, service mesh, message queue,
+and background worker.
 
 Demonstrates:
 
@@ -63,18 +65,8 @@ Demonstrates:
 **Complexity:** ⭐⭐⭐
 **Nodes:** 4
 
-Visualizes the OAuth2 Authorization Code Grant:
-
-1. User redirects to Auth Server
-2. Auth Server issues authorization code
-3. Client exchanges code for access token
-4. Client accesses protected API resource
-
-Demonstrates:
-
-- `User` primitive (stick figure)
-- Sequential Transfer with descriptive payloads
-- Wait pauses for visual clarity
+Visualizes the OAuth2 Authorization Code Grant with the `User` primitive and
+sequential Transfer packets with descriptive payloads.
 
 ---
 
@@ -84,17 +76,8 @@ Demonstrates:
 **Complexity:** ⭐⭐⭐
 **Nodes:** 4
 
-Primary → Replica replication pattern:
-
-- Client writes to Primary
-- Primary synchronously replicates to 2 Replicas
-- Concurrent Transfer animations for parallel replication
-
-Demonstrates:
-
-- Multiple `Database` primitives
-- Concurrent animation blocks
-- Highlight for active replication state
+Primary → Replica replication pattern with multiple `Database` primitives and
+concurrent Transfer animations for parallel replication.
 
 ---
 
@@ -110,7 +93,7 @@ End-to-end demo of the YAML AI Interface: parse a YAML string and render directl
 from archmotion.ai import parse_yaml_string
 
 yaml_input = """
-version: "1.0"
+version: "2.0"
 theme: neon_cyber
 nodes:
   - id: web
@@ -136,13 +119,39 @@ choreography:
     animation: { type: fade_in, targets: [web, api, db, c1, c2] }
   - action: play
     animation: { type: transfer, connection: c1, payload: "GET /users" }
-  - action: play
-    animation: { type: transfer, connection: c2, payload: "SELECT *" }
 """
 
 scene = parse_yaml_string(yaml_input)
 scene.render("yaml_demo.mp4")
 ```
+
+---
+
+## Fusion Demos (v2.0)
+
+The v2.0 differentiator: multiple domains coexist in one scene, with cross-domain
+`Transform` morphing.
+
+| Example | Domains | Demonstrates |
+|---|---|---|
+| `examples/v2_fusion_demo.py` | architecture + charts + geometry | Combined best-of showcase |
+| `examples/07_fusion_arch_metrics.py` | architecture + charts | Live `BarChart` beside a diagram |
+| `examples/08_fusion_morph.py` | architecture + geometry + charts | `Node` → `Circle` → `PieChart` |
+| `examples/09_fusion_math_over_arch.py` | architecture + math | LaTeX equation over a diagram |
+| `examples/10_fusion_code_walkthrough.py` | architecture + code | `CodeBlock` with data-flow `Transfer` |
+
+```python
+from archmotion.animation import Transform
+from archmotion.domains.geometry import Circle
+from archmotion.domains.charts import PieChart
+
+# Morph a database node into a circle, then a pie chart:
+scene.play(Transform(db, Circle(radius=55).move_to(520, 270)))
+scene.play(Transform(db, PieChart([3, 7, 5, 9], radius=60, center=(760, 340))))
+```
+
+> **LaTeX note:** the math fusion example (`09`) requires `latex` + `dvisvgm`
+> installed. If absent, it prints a message and skips gracefully.
 
 ---
 
@@ -155,7 +164,8 @@ pip install -e ".[dev]"
 # Run any example
 python examples/01_hello_world.py
 python examples/03_microservices.py
-python examples/06_ai_yaml_render.py
+python examples/v2_fusion_demo.py
 ```
 
-All examples output MP4 files in the current directory.
+Architecture examples output MP4 files in the current directory. Fusion demos
+export SVG + Lottie by default (Skia/FFmpeg optional for MP4).

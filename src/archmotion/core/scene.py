@@ -16,6 +16,7 @@ ergonomic v1-style calls (``add_node``/``add_connection``, ``concurrent()``,
 from __future__ import annotations
 
 import json
+import sys
 from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -279,11 +280,16 @@ class Scene:
         crf: int = 20,
         show_progress: bool = False,
         on_progress: Callable[[int, int], None] | None = None,
+        workers: int | None = None,
     ) -> Path:
         """Render the scene to an MP4 video file. Returns the file path.
 
-        ``on_progress``/``show_progress`` are accepted for v1 compatibility; the
-        actual frame loop currently reports progress only via ``on_progress``.
+        Rendering uses a multiprocessing worker pool by default (with a
+        SharedMemory ring for zero-copy frame IPC). Pass ``workers=1`` to use the
+        single-process path.
+
+        ``on_progress``/``show_progress`` report frame progress; ``show_progress``
+        prints to stderr when no explicit ``on_progress`` is given.
         """
         if not self._actions:
             raise EmptyTimelineError()
@@ -293,10 +299,26 @@ class Scene:
             out += ".mp4"
 
         self._prepare()
-        from archmotion.render.frame import render_scene
+        progress = _make_progress(show_progress, on_progress)
 
-        path = render_scene(self, out, fps=fps, crf=crf)
-        return Path(path)
+        if workers == 1:
+            from archmotion.render.frame import render_scene
+
+            path = render_scene(self, out, fps=fps, crf=crf)
+            return Path(path)
+
+        from archmotion.render.pool import render_pool
+
+        result = render_pool(
+            self,
+            out,
+            fps=fps,
+            crf=crf,
+            workers=workers,
+            on_progress=progress,
+        )
+        return result.output_path
+
 
     def export(
         self,
@@ -474,3 +496,20 @@ def _to_animation(item: object) -> Animation:
     if isinstance(item, AnimateBuilder):
         return item.build()
     return cast("Animation", item)
+
+
+def _make_progress(
+    show_progress: bool,
+    on_progress: Callable[[int, int], None] | None,
+) -> Callable[[int, int], None] | None:
+    """Build a progress callback, honouring an explicit one over ``show_progress``."""
+    if on_progress is not None:
+        return on_progress
+    if not show_progress:
+        return None
+
+    def _cb(completed: int, total: int) -> None:
+        pct = int(completed * 100 / total) if total else 0
+        print(f"\rRendering: {completed}/{total} frames ({pct}%)", end="", file=sys.stderr)
+
+    return _cb

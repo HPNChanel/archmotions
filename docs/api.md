@@ -4,24 +4,31 @@ Auto-generated documentation from source code docstrings.
 
 ---
 
-## Core API
+## Core
 
 ### Scene
 
-::: archmotion.api.scene.Scene
+::: archmotion.core.scene.Scene
     options:
       members:
         - __init__
         - play
         - wait
-        - concurrent
+        - add
         - render
+        - export
+        - resolve
+        - to_lottie
+        - to_svg
+        - to_html
 
 ---
 
+## Architecture Primitives
+
 ### Node
 
-::: archmotion.api.primitives.Node
+::: archmotion.domains.architecture.primitives.Node
     options:
       show_source: false
 
@@ -29,7 +36,7 @@ Auto-generated documentation from source code docstrings.
 
 ### Database
 
-::: archmotion.api.primitives.Database
+::: archmotion.domains.architecture.primitives.Database
     options:
       show_source: false
 
@@ -37,7 +44,7 @@ Auto-generated documentation from source code docstrings.
 
 ### Cloud
 
-::: archmotion.api.primitives.Cloud
+::: archmotion.domains.architecture.primitives.Cloud
     options:
       show_source: false
 
@@ -45,7 +52,7 @@ Auto-generated documentation from source code docstrings.
 
 ### Queue
 
-::: archmotion.api.primitives.Queue
+::: archmotion.domains.architecture.primitives.Queue
     options:
       show_source: false
 
@@ -53,7 +60,7 @@ Auto-generated documentation from source code docstrings.
 
 ### Cache
 
-::: archmotion.api.primitives.Cache
+::: archmotion.domains.architecture.primitives.Cache
     options:
       show_source: false
 
@@ -61,7 +68,7 @@ Auto-generated documentation from source code docstrings.
 
 ### User
 
-::: archmotion.api.primitives.User
+::: archmotion.domains.architecture.primitives.User
     options:
       show_source: false
 
@@ -69,7 +76,7 @@ Auto-generated documentation from source code docstrings.
 
 ### Connection
 
-::: archmotion.api.connections.Connection
+::: archmotion.domains.architecture.connections.Connection
     options:
       show_source: false
 
@@ -79,11 +86,11 @@ Auto-generated documentation from source code docstrings.
 
 ### FadeIn / FadeOut
 
-::: archmotion.motions._animations.FadeIn
+::: archmotion.animation.base.FadeIn
     options:
       show_source: false
 
-::: archmotion.motions._animations.FadeOut
+::: archmotion.animation.base.FadeOut
     options:
       show_source: false
 
@@ -91,7 +98,7 @@ Auto-generated documentation from source code docstrings.
 
 ### Transfer
 
-::: archmotion.motions._animations.Transfer
+::: archmotion.animation.recipes.Transfer
     options:
       show_source: false
 
@@ -99,7 +106,7 @@ Auto-generated documentation from source code docstrings.
 
 ### Pulse
 
-::: archmotion.motions._animations.Pulse
+::: archmotion.animation.recipes.Pulse
     options:
       show_source: false
 
@@ -107,7 +114,7 @@ Auto-generated documentation from source code docstrings.
 
 ### Highlight
 
-::: archmotion.motions._animations.Highlight
+::: archmotion.animation.recipes.Highlight
     options:
       show_source: false
 
@@ -115,7 +122,7 @@ Auto-generated documentation from source code docstrings.
 
 ### ColorShift
 
-::: archmotion.motions._animations.ColorShift
+::: archmotion.animation.recipes.ColorShift
     options:
       show_source: false
 
@@ -123,11 +130,43 @@ Auto-generated documentation from source code docstrings.
 
 ### ScaleUp / ScaleDown
 
-::: archmotion.motions._animations.ScaleUp
+::: archmotion.animation.recipes.ScaleUp
     options:
       show_source: false
 
-::: archmotion.motions._animations.ScaleDown
+::: archmotion.animation.recipes.ScaleDown
+    options:
+      show_source: false
+
+---
+
+### Transform
+
+::: archmotion.animation.base.Transform
+    options:
+      show_source: false
+
+---
+
+## Geometry Domain
+
+::: archmotion.domains.geometry.shapes.Circle
+    options:
+      show_source: false
+
+::: archmotion.domains.geometry.shapes.Rectangle
+    options:
+      show_source: false
+
+---
+
+## Charts Domain
+
+::: archmotion.domains.charts.charts.BarChart
+    options:
+      show_source: false
+
+::: archmotion.domains.charts.charts.PieChart
     options:
       show_source: false
 
@@ -135,11 +174,11 @@ Auto-generated documentation from source code docstrings.
 
 ## Theme
 
-::: archmotion.renderer.theme.ThemeConfig
+::: archmotion.render.theme.ThemeConfig
     options:
       show_source: false
 
-::: archmotion.renderer.theme.get_theme
+::: archmotion.render.theme.get_theme
     options:
       show_source: false
 

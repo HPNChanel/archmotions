@@ -70,11 +70,7 @@ class CircularReferenceError(TopologyError):
 
 
 class InvalidConnectionError(TopologyError):
-    """Connection references a non-existent node or is a self-loop.
-
-    Args:
-        message: Description of the invalid connection.
-    """
+    """Connection references a non-existent node or is a self-loop."""
 
 
 # ──────────────────────────────────────────────

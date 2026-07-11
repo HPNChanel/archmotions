@@ -61,38 +61,64 @@ def _make_scene() -> Scene:
     return scene
 
 
+def _export_result(path) -> object:
+    """Build a lightweight ExportResult-like object for mocking render_pool."""
+    from pathlib import Path
+
+    from archmotion.render.pool import ExportResult
+
+    return ExportResult(
+        output_path=Path(str(path)),
+        total_frames=1,
+        encoder_label="CPU (libx264)",
+        file_size_bytes=0,
+        workers=1,
+        ipc_mode="pickle",
+    )
+
+
 class TestSceneRender:
-    """Test the v2 Scene.render() pipeline wiring (mocked render_scene)."""
+    """Test the v2 Scene.render() pipeline wiring (mocked render_pool)."""
 
     def test_empty_timeline_raises(self):
         scene = Scene()
         with pytest.raises(EmptyTimelineError):
             scene.render("nope.mp4")
 
-    def test_render_invokes_render_scene(self, tmp_path):
+    def test_render_invokes_render_pool(self, tmp_path):
+        scene = _make_scene()
+        with patch(
+            "archmotion.render.pool.render_pool",
+            return_value=_export_result(tmp_path / "test.mp4"),
+        ) as mock_rp:
+            scene.render(str(tmp_path / "test.mp4"))
+            mock_rp.assert_called_once()
+
+    def test_workers_one_uses_single_process(self, tmp_path):
+        """``workers=1`` routes through the single-process ``render_scene``."""
         scene = _make_scene()
         with patch(
             "archmotion.render.frame.render_scene",
-            return_value=str(tmp_path / "test.mp4"),
+            return_value=str(tmp_path / "single.mp4"),
         ) as mock_rs:
-            scene.render(str(tmp_path / "test.mp4"))
+            scene.render(str(tmp_path / "single.mp4"), workers=1)
             mock_rs.assert_called_once()
 
     def test_auto_appends_mp4_extension(self, tmp_path):
         scene = _make_scene()
         with patch(
-            "archmotion.render.frame.render_scene",
-            return_value=str(tmp_path / "no_ext.mp4"),
-        ) as mock_rs:
+            "archmotion.render.pool.render_pool",
+            return_value=_export_result(tmp_path / "no_ext.mp4"),
+        ) as mock_rp:
             result = scene.render(str(tmp_path / "no_ext"))
-            assert mock_rs.call_args.args[1].endswith(".mp4")
+            assert mock_rp.call_args.args[1].endswith(".mp4")
             assert str(result).endswith(".mp4")
 
     def test_render_returns_path(self, tmp_path):
         scene = _make_scene()
         with patch(
-            "archmotion.render.frame.render_scene",
-            return_value=str(tmp_path / "out.mp4"),
+            "archmotion.render.pool.render_pool",
+            return_value=_export_result(tmp_path / "out.mp4"),
         ):
             result = scene.render(str(tmp_path / "out.mp4"))
             assert result.name == "out.mp4"

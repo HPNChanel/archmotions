@@ -1,6 +1,9 @@
 # Architecture Deep-Dive
 
-ArchMotion renders system architecture diagrams into animated video walkthroughs using a **4-Phase Pipeline**. Each phase is strictly separated, communicating only through well-defined data contracts.
+ArchMotion v2.0 is a **multi-domain animation engine**: every vector graphic shares
+a **point-array Bézier geometry**, so any two shapes can `Transform` into each other.
+Architecture animation remains a first-class domain (DAG layout, A\*-routed
+connections, data-flow packets) fused with general-purpose graphics.
 
 ---
 
@@ -8,136 +11,192 @@ ArchMotion renders system architecture diagrams into animated video walkthroughs
 
 ```mermaid
 graph LR
-    subgraph "Phase 1: Topology"
-        A["Scene + Nodes + Connections"]
+    subgraph "Topology"
+        A["Scene + Graphics (VMobjects)"]
     end
-    subgraph "Phase 2: Layout"
-        B["ResolvedLayout"]
+    subgraph "Layout"
+        B["Resolved positions + routes"]
     end
-    subgraph "Phase 3: Timeline"
-        C["CompiledTimeline"]
+    subgraph "Timeline"
+        C["CompiledTimeline\n(PropertyAction + MorphAction)"]
     end
-    subgraph "Phase 4: Render & Export"
+    subgraph "Render / Export"
         D["FrameSpec × N"]
-        E["FFmpeg Pipe → MP4"]
+        E["MP4 / Lottie / SVG / HTML"]
     end
 
-    A -->|"resolve_layout()"| B
+    A -->|"resolve_architecture()"| B
     B -->|"compile_timeline()"| C
-    C -->|"export_video()"| D
-    D -->|"Pool.imap()"| E
+    C -->|"render_pool()" / build_*()"| D
+    D -->|"Pool.imap() + FFmpegPipe"| E
 ```
 
 ---
 
-## Phase 1: Topology Collection
+## Module Layout (v2.0)
 
-The user constructs a **Scene Graph** by creating `Node`, `Database`, `Cloud`, `Queue`, `Cache`, and `User` primitives, then connecting them with `Connection` objects.
+```
+src/archmotion/
+  core/                 Foundation
+    graphic.py          Graphic base (id, z_index, transform, style, opacity, parent)
+    vmobject.py         VMobject — point-array Bézier base (generate_points, interpolate)
+    camera.py           Camera — scene-units ↔ pixels viewport
+    scene.py            Scene — virtual clock, play/wait, layout, render/export
+    transform.py        Affine 3×3 transform
+    style.py            Style dataclass (fill/stroke colors + opacities)
+    pathops.py          Bézier utilities (length, point-at-t, resample, align)
+    property.py         Property enum + PropertyAction/MorphAction + CompiledTimeline
+  animation/
+    base.py             Animation base, AnimationGroup, .animate builder, FadeIn/Out, Transform
+    recipes.py          Transfer, Pulse, Highlight, ColorShift, ScaleUp/Down
+    creation.py         Create, DrawBorderThenFill
+    writing.py          Write (per-glyph)
+  render/
+    path_render.py      Generic VMobject → Skia painter (one renderer for ALL shapes)
+    frame.py            FrameSpec + render_frame (single-frame) + render_scene (single-process)
+    pool.py             Parallel worker pool + SharedMemory zero-copy IPC → MP4
+    shm.py              SharedMemory ring buffer (zero-copy frame IPC)
+    ffmpeg.py           FFmpeg binary resolution + NVENC detection + stdin pipe
+    canvas.py           Skia canvas wrapper
+    theme.py            ThemeConfig + THEMES (4 themes)
+    tex.py              LaTeX → dvisvgm → VMobject points (math domain)
+    text_glyphs.py      Glyph-path extraction from text
+  domains/
+    architecture/       Node/Database/Cloud/Queue/Cache/User + Connection + Packet + layout
+    geometry/           Circle, Rectangle, Square, Line, Arrow, Polygon, Arc, Dot, Axes, ...
+    charts/             BarChart, LineChart, PieChart, ScatterPlot
+    text/               Text, Paragraph, MarkupText
+    math/               MathText, Tex (LaTeX)
+    code/               CodeBlock (Pygments syntax highlight)
+  exporter/
+    lottie_v2.py        VMobjects → Lottie JSON shape layers
+    svg_v2.py           VMobjects → animated SVG (CSS @keyframes)
+    html_v2.py          Self-contained lottie-web HTML player
+  ai/                   YAML schema (Pydantic) + builder → Scene
+  dx/, errors.py, constants.py, __main__.py
+```
 
-**Key classes:**
+---
 
-- `Scene` — Orchestrator. Collects topology, records animations, dispatches render.
-- `Node` — Rectangular server/service box.
-- `Database` — Cylinder-shaped data store.
-- `Connection` — Directed edge with Manhattan routing.
+## Topology & Layout
 
-**Relative Positioning:**
+The user composes a scene graph of VMobjects. Architecture primitives support
+**relative positioning** (resolved in an explicit layout pass):
 
 ```python
-db.right_of(gateway, distance=4)  # 4 grid units to the right
+db.right_of(gateway, distance=4)  # 4 grid units right
 cache.below(gateway, distance=3)  # 3 grid units below
 ```
 
-Positions are stored as relative references and resolved to absolute pixel coordinates in Phase 2.
+The **Layout Resolver** (`domains/architecture/layout.py`) converts relative
+positioning into absolute pixel coordinates:
+
+1. Build a DAG from position dependencies.
+2. Topological sort (Kahn's algorithm) to determine evaluation order.
+3. Convert grid units → pixel offsets (1 unit = `GRID_UNIT` = 80px).
+4. Assign a `BoundingBox` to each node via text-size estimation.
+5. Center the diagram on the canvas.
+6. Route connections using **A\* obstacle-aware Manhattan routing** with optional
+   waypoints + rounded corners.
+
+**Output:** `node_boxes` (pixel-perfect bounding boxes) + `connection_routes`
+(routed polylines), applied to the graphics via `move_to()`.
+
+Layout is **opt-in** — call `scene._prepare()` (done automatically by
+`render`/`export`) or `resolve_architecture(scene, ...)`.
 
 ---
 
-## Phase 2: Layout Resolution
+## Timeline Compilation
 
-The **Layout Resolver** (`layout/resolver.py`) converts relative positioning into absolute pixel coordinates.
+Animations compile into a pure-data `CompiledTimeline` (`core/property.py`):
 
-**Algorithm:**
+- **PropertyAction** — a scalar tween (`OPACITY`, `SCALE`, `POSITION_X/Y`,
+  `FILL_R/G/B`, `GLOW_INTENSITY`, `PATH_PROGRESS`, `CREATE_PROGRESS`, …) with
+  `O(1)` `value_at(t)` interpolation and easing.
+- **MorphAction** — a whole-point-array morph (cross-domain `Transform`): the
+  renderer sets the graphic's Bézier points to `lerp(source, target, eased(t))`.
 
-1. Build a DAG (Directed Acyclic Graph) from position dependencies.
-2. Topological sort to determine evaluation order.
-3. Convert grid units → pixel offsets (1 unit = `GRID_UNIT` pixels).
-4. Assign `BoundingBox` to each node using Skia font metrics.
-5. Center the entire diagram on the canvas.
-6. Route connections using Manhattan Router (L/I-shape orthogonal paths).
-
-**Output:** `ResolvedLayout` containing:
-
-- `node_boxes: dict[str, BoundingBox]` — Pixel-perfect bounding boxes.
-- `connection_routes: dict[str, list[Point]]` — Routed polyline paths.
-
-**Error detection:**
-
-- `OrphanNodeError` — Node without a position anchor.
-- `OverflowCanvasError` — Diagram exceeds canvas boundaries.
-- `CyclicDependencyError` — Circular position references.
-
----
-
-## Phase 3: Timeline Compilation
-
-The **Timeline Compiler** (`timeline/compiler.py`) converts `play()` and `wait()` calls into discrete `ScheduledAction` objects with absolute timestamps.
-
-**Decomposition rules:**
-
-| Animation | → ScheduledAction |
+| Animation | Resolves to |
 |---|---|
-| `FadeIn(node)` | `OPACITY: 0 → 1` over duration |
-| `FadeOut(node)` | `OPACITY: 1 → 0` over duration |
+| `FadeIn(node)` / `FadeOut(node)` | `OPACITY: 0 → 1` / `1 → 0` |
 | `Transfer(conn)` | `PATH_PROGRESS: 0 → 1` (packet slides along route) |
-| `Pulse(node)` | `GLOW_INTENSITY: 0 → peak → 0` (ramp up then down) |
+| `Pulse(node)` | `GLOW_INTENSITY: 0 → peak → 0` |
 | `Highlight(node)` | `GLOW_INTENSITY: 0 → intensity` (persistent) |
-| `ColorShift(node)` | `COLOR_R/G/B: from → to` over duration |
-| `ScaleUp(node)` | `SCALE: 1 → factor` over duration |
-| `ScaleDown(node)` | `SCALE: factor → 1` over duration |
+| `ColorShift(node)` | `FILL_R/G/B: from → to` |
+| `ScaleUp` / `ScaleDown` | `SCALE: 1 → factor` / `factor → 1` |
+| `Transform(a, b)` | `MorphAction` (point-array interpolation) |
 
-**Output:** `CompiledTimeline` with:
-
-- `total_frames: int` — Total frame count.
-- `actions: tuple[ScheduledAction, ...]` — All scheduled property changes.
-- `transfer_metas: tuple[TransferMeta, ...]` — Packet rendering metadata.
-
-Each `ScheduledAction` supports **O(1) `value_at(t)`** — no iteration needed.
+`CompiledTimeline.snapshot_at_frame(frame)` resolves the full per-target state —
+scalars + active morphs — in one pass.
 
 ---
 
-## Phase 4: Render & Export
+## Render & Export
 
-The **Renderer** and **Exporter** work together:
+### MP4 (parallel pipeline)
 
-1. **Frame Spec Generation** — Build a `FrameSpec` for each frame containing all data needed to paint it.
-2. **Multiprocessing Pool** — `Pool.imap()` distributes frame rendering across CPU cores.
-3. **Skia Canvas** — Each worker creates a `SkiaCanvas`, paints layers in Z-order (connections → nodes → packets → effects), and returns raw RGBA bytes.
-4. **FFmpeg Pipe** — Main process streams bytes directly to FFmpeg via stdin pipe. Zero disk I/O.
+1. **Compile once** — build the timeline + collect paintable VMobjects.
+2. **Shared context** — the immutable `(graphics, timeline, camera, dims)` is
+   pickled **once** to each worker via a Pool initializer (not per frame).
+3. **SharedMemory ring** — workers write RGBA bytes into pre-allocated
+   SharedMemory slots (zero-copy, zero-serialization). Falls back to standard
+   pickle IPC on platforms where SharedMemory is unavailable.
+4. **Pool.imap** — frames rendered in parallel across CPU cores; `imap` preserves
+   sequential ordering for the FFmpeg stdin stream.
+5. **FFmpegPipe** — raw RGBA → stdin → H.264 (`h264_nvenc` GPU when available,
+   else `libx264`). Zero disk I/O.
 
-**Z-index layers:**
+Worker sizing: `min(cpu_count × WORKER_RATIO, MAX_WORKERS)`.
 
-| Z-Index | Layer | Contents |
-|---|---|---|
-| 10 | Connections | Manhattan polylines + arrowheads |
-| 20 | Nodes | Rectangles, cylinders, clouds, etc. |
-| 40 | Packets | Colored circles sliding along paths |
-| 50 | Effects | Glow, highlights, annotations |
+```python
+scene.render("out.mp4")                    # parallel pool (default)
+scene.render("out.mp4", workers=1)         # single-process fallback
+scene.render("out.mp4", show_progress=True)
+```
 
-**Memory Invariants:**
+### Generic path renderer
 
-- Each worker process holds exactly 1 canvas in memory at a time.
-- Main process streams bytes immediately — no frame accumulation.
-- Peak RAM target: < 512MB for a 10-second video.
+A **single** renderer (`render/path_render.py`) paints every VMobject: it builds a
+Skia `Path` from the Bézier control points, applies the graphic's transform +
+camera matrix, and fills/strokes per `style`. This replaces per-type painters and
+is what makes cross-domain `Transform` possible.
+
+### Vector exports (Skia-free)
+
+`exporter/{lottie_v2,svg_v2,html_v2}.py` consume the point-array graphics +
+compiled actions directly — no Skia/FFmpeg needed, so they run in the browser
+(ArchMotion Studio / Pyodide).
+
+---
+
+## Multi-Domain Fusion
+
+The v2.0 differentiator: any domain coexists in one scene, and any two VMobjects
+share point-array geometry so they can `Transform`:
+
+```python
+from archmotion.domains.geometry import Circle
+from archmotion.domains.charts import PieChart
+from archmotion.animation import Transform
+
+# Morph a database node into a circle, then into a pie chart:
+scene.play(Transform(db, Circle(radius=55).move_to(520, 270)))
+scene.play(Transform(db, PieChart([3, 7, 5, 9], radius=60, center=(760, 340))))
+```
+
+Point-count alignment (`align_points`) handles mismatched topologies via
+resampling, the same approach Manim uses.
 
 ---
 
 ## Theme System
 
-ArchMotion v0.2.0 ships with 4 themes:
+Four themes, each a frozen `ThemeConfig` (`render/theme.py`):
 
 | Theme | Style | Best For |
 |---|---|---|
-| `dark_terminal` | Dark background, muted colors | Technical presentations |
+| `dark_terminal` | Dark background, muted colors *(default)* | Technical presentations |
 | `neon_cyber` | Deep black + neon glows (cyan, magenta) | Eye-catching demos |
 | `blueprint` | Blue background, white wireframe | Engineering documentation |
 | `light_paper` | White background, dark borders | Reports, slides, print |
@@ -150,7 +209,8 @@ scene = Scene(theme="neon_cyber")
 
 ## YAML AI Interface
 
-The `archmotion.ai` package allows LLMs to generate YAML that compiles into animated videos:
+The `archmotion.ai` package lets LLMs generate YAML that compiles into animated
+videos:
 
 ```
 User → "Draw an OAuth2 flow"
@@ -160,4 +220,4 @@ User → "Draw an OAuth2 flow"
   → scene.render() → video.mp4
 ```
 
-Security: `yaml.safe_load()` only, 1MB file limit, Pydantic validation, no `eval()`.
+Security: `yaml.safe_load()` only, size limit, Pydantic validation, no `eval()`.

@@ -13,7 +13,7 @@ const PYODIDE_INDEX = `https://cdn.jsdelivr.net/pyodide/v${PYODIDE_VERSION}/full
 
 // The wheel is built from the repo root (python -m build --wheel) and copied to
 // studio/public/wheels so it ships as a static asset (no external CDN dep).
-const WHEEL_URL = "./wheels/archmotion-1.0.0-py3-none-any.whl";
+const WHEEL_URL = "./wheels/archmotion-2.0.0-py3-none-any.whl";
 
 let pyodidePromise: Promise<PyodideInterface> | null = null;
 
@@ -27,15 +27,20 @@ export function initPyodide(onProgress?: InitProgress): Promise<PyodideInterface
     onProgress?.(0.1, "Loading Pyodide runtime…");
     const py = await loadPyodide({ indexURL: PYODIDE_INDEX });
 
-    onProgress?.(0.45, "Loading Python packages (pydantic, pyyaml)…");
-    await py.loadPackage(["micropip", "pydantic", "pyyaml"]);
+    onProgress?.(0.45, "Loading Python packages (pydantic, pyyaml, numpy)…");
+    // numpy is now a core dependency of the v2 engine (point arrays). skia /
+    // imageio-ffmpeg are NOT loaded — the browser path only needs layout +
+    // Lottie/SVG/HTML export, never server-side MP4 rendering.
+    await py.loadPackage(["micropip", "pydantic", "pyyaml", "numpy"]);
 
     onProgress?.(0.75, "Installing the ArchMotion engine…");
     const micropip = py.pyimport("micropip");
-    // pydantic + pyyaml are already loaded above, so we can skip dependency
-    // resolution (which would otherwise try to fetch the heavy skia/Pillow deps
-    // that archmotion only needs for server-side MP4 rendering).
-    await micropip.install(WHEEL_URL);
+    // All Pyodide-compatible runtime deps (pydantic, pyyaml, numpy) are loaded
+    // above, so we skip transitive dependency resolution with `deps: false`.
+    // This prevents micropip from trying to fetch the heavy skia-python /
+    // imageio-ffmpeg / Pillow / rich deps, which are only needed for the
+    // server-side MP4 path and are unavailable in the browser.
+    await micropip.install(WHEEL_URL, { deps: false });
 
     onProgress?.(0.95, "Defining the compiler bridge…");
     py.runPython(BRIDGE_PY);
@@ -56,7 +61,7 @@ export function initPyodide(onProgress?: InitProgress): Promise<PyodideInterface
 // with an empty/invalid choreography so the canvas stays live while editing.
 const BRIDGE_PY = `
 import json
-from archmotion.api.scene import Scene
+from archmotion.core.scene import Scene
 from archmotion.ai import parse_yaml_string, YAMLParseError
 from archmotion.errors import ArchMotionError
 
