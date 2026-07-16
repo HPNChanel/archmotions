@@ -48,6 +48,16 @@ class Property(Enum):
     GLOW_BLUR = auto()
     PATH_PROGRESS = auto()
     CREATE_PROGRESS = auto()
+    # Full local affine transform components.  These are emitted by
+    # ``graphic.animate`` so nested groups can be evaluated without baking
+    # world-space points or destroying the scene hierarchy.
+    TRANSFORM_A = auto()
+    TRANSFORM_B = auto()
+    TRANSFORM_C = auto()
+    TRANSFORM_D = auto()
+    TRANSFORM_TX = auto()
+    TRANSFORM_TY = auto()
+    VALUE = auto()
 
 
 @dataclass(frozen=True)
@@ -110,6 +120,7 @@ class MorphAction:
     target: object
     start_time: float
     end_time: float
+    contour_starts: tuple[int, ...] = ()
     easing: str = easing.DEFAULT_EASING
 
     @property
@@ -145,6 +156,7 @@ class FrameSnapshot:
 
     scalars: dict[str, dict[Property, float]] = field(default_factory=dict)
     morphs: dict[str, object] = field(default_factory=dict)
+    morph_contours: dict[str, tuple[int, ...]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -200,6 +212,7 @@ class CompiledTimeline:
             morphs_by_target.setdefault(maction.target_id, []).append(maction)
 
         morphs: dict[str, object] = {}
+        morph_contours: dict[str, tuple[int, ...]] = {}
         for target_id, ms in morphs_by_target.items():
             ms.sort(key=lambda m: m.start_time)
             morph_chosen: MorphAction | None = None
@@ -210,12 +223,19 @@ class CompiledTimeline:
                     break
             if morph_chosen is None:
                 morphs[target_id] = ms[0].source
+                morph_contours[target_id] = ms[0].contour_starts
             elif t <= morph_chosen.end_time:
                 morphs[target_id] = morph_chosen.points_at(t)
+                morph_contours[target_id] = morph_chosen.contour_starts
             else:
                 morphs[target_id] = morph_chosen.target
+                morph_contours[target_id] = morph_chosen.contour_starts
 
-        return FrameSnapshot(scalars=scalars, morphs=morphs)
+        return FrameSnapshot(
+            scalars=scalars,
+            morphs=morphs,
+            morph_contours=morph_contours,
+        )
 
     def snapshot_at_frame(self, frame_index: int) -> FrameSnapshot:
         """Resolve state at a frame index."""

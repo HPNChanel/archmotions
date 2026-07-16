@@ -6,7 +6,7 @@ import pytest
 
 from archmotion.animation import Transform
 from archmotion.core import Scene
-from archmotion.domains.charts import BarChart, LineChart, PieChart
+from archmotion.domains.charts import BarChart, LineChart, PieChart, ScatterPlot
 from archmotion.domains.geometry import Circle
 
 
@@ -45,3 +45,29 @@ def test_empty_charts_safe():
     assert BarChart([]).points.shape[0] == 0
     assert LineChart([1.0]).points.shape[0] == 0
     assert PieChart([0.0, 0.0]).points.shape[0] == 0
+
+
+def test_scatter_plot_one_contour_per_point():
+    plot = ScatterPlot([(0.0, 0.0), (1.0, 2.0), (2.0, 1.0)], width=200.0, height=150.0)
+    assert len(plot.contour_starts) == 3
+
+
+def test_scatter_plot_empty_safe():
+    plot = ScatterPlot([])
+    assert plot.points.shape[0] == 0
+
+
+def test_scatter_plot_maps_data_to_pixels():
+    plot = ScatterPlot(
+        [(0.0, 0.0), (10.0, 10.0)],
+        x_range=(0.0, 10.0),
+        y_range=(0.0, 10.0),
+        width=100.0,
+        height=100.0,
+        origin=(0.0, 100.0),
+    )
+    pts = plot.points
+    # First point at data (0,0) → pixel (0, 100) [bottom-left].
+    assert pts[0][0] == pytest.approx(5.0, abs=1.0)  # dot radius offset
+    # Second point at data (10,10) → pixel (100, 0) [top-right].
+    assert pts[0][0] < pts[-1][0]  # x increases

@@ -16,7 +16,7 @@ import numpy as np
 from archmotion.core.property import Property, PropertyAction
 from archmotion.core.transform import Transform
 from archmotion.core.vmobject import VMobject
-from archmotion.render.path_render import resolve_effective
+from archmotion.render.path_render import resolve_effective, theme_style_for
 
 if TYPE_CHECKING:
     from archmotion.core.scene import Scene
@@ -32,13 +32,16 @@ def build_lottie(scene: Scene, *, title: str = "ArchMotion") -> dict[str, Any]:
 
     # Lottie paints layer 0 on top; our z_order ascends bottom→top.
     layers: list[dict[str, Any]] = []
+    snap = timeline.snapshot_at(timeline.total_duration)
     for index, graphic in enumerate(reversed(graphics)):
-        snap = timeline.snapshot_at(timeline.total_duration)
         state = resolve_effective(
             graphic,
             snap.scalars.get(graphic.id),
             snap.morphs.get(graphic.id),
             scene.camera,
+            theme_style_for(graphic, scene.theme),
+            scalar_lookup=snap.scalars,
+            morph_contour_starts=snap.morph_contours.get(graphic.id),
         )
         world_pts = np.asarray(state.points, dtype=np.float64).reshape(-1, 2)
         world = Transform(state.matrix).apply_to_points(world_pts)
@@ -81,10 +84,10 @@ def build_lottie(scene: Scene, *, title: str = "ArchMotion") -> dict[str, Any]:
 
 def _shapes_for(state: object, world: object) -> list[dict[str, Any]]:
     pts = np.asarray(world, dtype=np.float64).reshape(-1, 2)
-    shape = _bezier_shape(pts, state.contour_starts)  # type: ignore[attr-defined]
+    paths = _bezier_shapes(pts, state.contour_starts)  # type: ignore[attr-defined]
     fill_color = _hex_to_rgb01(state.fill_color)  # type: ignore[attr-defined]
     return [
-        shape,
+        *paths,
         {
             "ty": "fl",
             "c": {"a": 0, "k": list(fill_color)},
@@ -106,48 +109,61 @@ def _shapes_for(state: object, world: object) -> list[dict[str, Any]]:
     ]
 
 
-def _bezier_shape(pts: object, contour_starts: list[int]) -> dict[str, Any]:
-    """Convert a point array + contour starts into a Lottie bezier shape."""
+def _bezier_shapes(pts: object, contour_starts: list[int]) -> list[dict[str, Any]]:
+    """Convert every VMobject contour into a valid Lottie path shape."""
     arr = np.asarray(pts, dtype=np.float64).reshape(-1, 2)
     if arr.shape[0] == 0:
-        return {
-            "ty": "sh",
-            "ks": {"a": 0, "k": {"a": [], "i": [], "o": [], "c": False}},
-            "nm": "Shape",
-        }
+        return []
 
-    # Flatten all contours into one vertex list (multi-contour → merged shape).
-    anchors: list[float] = []
-    in_t: list[float] = []
-    out_t: list[float] = []
+    shapes: list[dict[str, Any]] = []
     starts = [*list(contour_starts), arr.shape[0]]
     for ci in range(len(contour_starts)):
         start = contour_starts[ci]
         end = starts[ci + 1]
         if end - start < 1:
             continue
-        n_seg = (end - start - 1) // 3
-        verts = [arr[start + 3 * m] for m in range(n_seg + 1)]
-        for vi, vertex in enumerate(verts):
-            anchors.extend([float(vertex[0]), float(vertex[1])])
-            # Out-tangent of this vertex.
-            if vi < n_seg:
-                h1 = arr[start + 1 + 3 * vi]
-                out_t.extend([float(h1[0] - vertex[0]), float(h1[1] - vertex[1])])
-            else:
-                out_t.extend([0.0, 0.0])
-            # In-tangent of this vertex.
-            if vi > 0:
-                h2 = arr[start + 2 + 3 * (vi - 1)]
-                in_t.extend([float(h2[0] - vertex[0]), float(h2[1] - vertex[1])])
-            else:
-                in_t.extend([0.0, 0.0])
-
-    return {
-        "ty": "sh",
-        "ks": {"a": 0, "k": {"a": anchors, "i": in_t, "o": out_t, "c": True}},
-        "nm": "Path",
-    }
+        contour = arr[start:end]
+        segment_count = (contour.shape[0] - 1) // 3
+        anchors = [contour[0], *[contour[3 * i] for i in range(1, segment_count + 1)]]
+        closed = segment_count > 0 and np.allclose(anchors[0], anchors[-1])
+        if closed:
+            anchors.pop()
+        vertices = [[float(point[0]), float(point[1])] for point in anchors]
+        in_tangents = [[0.0, 0.0] for _ in vertices]
+        out_tangents = [[0.0, 0.0] for _ in vertices]
+        for segment in range(segment_count):
+            source_index = segment
+            target_index = (segment + 1) % len(vertices)
+            if source_index >= len(vertices) or (not closed and target_index == 0):
+                continue
+            source = np.asarray(anchors[source_index])
+            target = np.asarray(anchors[target_index])
+            h1 = contour[1 + 3 * segment]
+            h2 = contour[2 + 3 * segment]
+            out_tangents[source_index] = [
+                float(h1[0] - source[0]),
+                float(h1[1] - source[1]),
+            ]
+            in_tangents[target_index] = [
+                float(h2[0] - target[0]),
+                float(h2[1] - target[1]),
+            ]
+        shapes.append(
+            {
+                "ty": "sh",
+                "ks": {
+                    "a": 0,
+                    "k": {
+                        "i": in_tangents,
+                        "o": out_tangents,
+                        "v": vertices,
+                        "c": closed,
+                    },
+                },
+                "nm": f"Path {ci + 1}",
+            }
+        )
+    return shapes
 
 
 def _opacity_prop(
@@ -162,9 +178,7 @@ def _opacity_prop(
             kfs.append(
                 {"t": max(0, round(a.start_time * fps)), "s": [round(a.start_value * 100, 1)]}
             )
-            kfs.append(
-                {"t": round(a.end_time * fps), "s": [round(a.end_value * 100, 1)]}
-            )
+            kfs.append({"t": round(a.end_time * fps), "s": [round(a.end_value * 100, 1)]})
     if not kfs:
         return {"a": 0, "k": 100}
     kfs.sort(key=lambda k: k["t"])

@@ -39,6 +39,14 @@ coexisting — with `Transform` morphing between domains.
 | 08 | `08_fusion_morph.py` | arch + geometry + charts | `Node` → `Circle` → `PieChart` morph |
 | 09 | `09_fusion_math_over_arch.py` | architecture + math | LaTeX equation over a diagram (needs `latex`) |
 | 10 | `10_fusion_code_walkthrough.py` | architecture + code | `CodeBlock` with data-flow `Transfer` |
+| 11 | `11_chart_animations.py` | charts | `GrowBar` + `DrawLine` + `SweepPie` reveals |
+| 12 | `12_mvp_scene.py` | geometry + text + updater | Production MP4/PNG CLI smoke scene |
 
-Architecture examples render MP4. Fusion demos export SVG + Lottie by default
-(Skia/FFmpeg optional for MP4). Example 09 requires `latex` + `dvisvgm`.
+MP4 and PNG are the v2.0 production outputs. Some fusion demos also emit SVG
+and Lottie artifacts; those exporters remain experimental. Example 09 requires
+`latex` + `dvisvgm`.
+
+```bash
+archmotion render examples/12_mvp_scene.py MvpScene -ql -o mvp.mp4
+archmotion still examples/12_mvp_scene.py MvpScene -ql -o mvp.png
+```

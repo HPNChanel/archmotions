@@ -6,11 +6,11 @@ import json
 
 import pytest
 
+from archmotion.animation import FadeIn
 from archmotion.core import Property, Scene, VMobject
 from archmotion.exporter.lottie_v2 import build_lottie
 from archmotion.exporter.svg_v2 import build_svg
 from archmotion.render.path_render import resolve_effective
-from archmotion.animation import FadeIn
 
 
 class Square(VMobject):
@@ -43,7 +43,9 @@ def test_resolve_effective_opacity_default_and_override():
     g = Square(100.0)
     default = resolve_effective(g, None, None, Scene(resolution=(320, 240)).camera)
     assert default.opacity == 1.0
-    override = resolve_effective(g, {Property.OPACITY: 0.25}, None, Scene(resolution=(320, 240)).camera)
+    override = resolve_effective(
+        g, {Property.OPACITY: 0.25}, None, Scene(resolution=(320, 240)).camera
+    )
     assert override.opacity == 0.25
 
 
@@ -83,6 +85,19 @@ def test_svg_has_opacity_keyframes_for_fadein():
     assert "@keyframes" in svg
 
 
+def test_svg_keeps_open_paths_open_and_escapes_title():
+    from archmotion.domains.geometry import Line
+
+    sc = Scene(resolution=(320, 240))
+    line = Line((10.0, 10.0), (100.0, 100.0))
+    sc.add(line)
+    sc.play(FadeIn(line))
+    svg = build_svg(sc, title="A < B & C")
+    path_markup = next(part for part in svg.splitlines() if "<path" in part)
+    assert " Z" not in path_markup
+    assert "A &lt; B &amp; C" in svg
+
+
 # ── Lottie export ────────────────────────────────────────────────
 
 
@@ -111,8 +126,28 @@ def test_lottie_opacity_keyframes_present():
     assert opacity_prop["k"][0]["s"] == [0.0]
 
 
+def test_lottie_paths_use_bodymovin_vertex_schema():
+    sc = Scene(resolution=(320, 240))
+    square = Square(100.0)
+    sc.add(square)
+    sc.play(FadeIn(square))
+    lot = build_lottie(sc)
+    path = next(shape for shape in lot["layers"][0]["shapes"] if shape["ty"] == "sh")
+    geometry = path["ks"]["k"]
+    assert set(geometry) == {"i", "o", "v", "c"}
+    assert all(len(vertex) == 2 for vertex in geometry["v"])
+    assert len(geometry["i"]) == len(geometry["v"]) == len(geometry["o"])
+
+
 def test_resolve_effective_matrix_is_3x3():
     g = Square(100.0)
     state = resolve_effective(g, None, None, Scene(resolution=(320, 240)).camera)
     matrix = state.matrix
     assert matrix.shape == (3, 3)
+
+
+def test_scene_background_uses_shared_strict_color_contract():
+    scene = Scene(background_color="red")
+    assert scene.theme.background_rgba == (1.0, 0.0, 0.0, 1.0)
+    with pytest.raises(ValueError, match="color must use"):
+        Scene(background_color="not-a-color")

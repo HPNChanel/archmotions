@@ -14,7 +14,15 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from archmotion._types import Direction
-from archmotion.constants import DEFAULT_DISTANCE, MAX_DISTANCE, MIN_DISTANCE
+from archmotion.constants import (
+    DEFAULT_DISTANCE,
+    DEFAULT_FONT_FAMILY,
+    DEFAULT_FONT_SIZE,
+    MAX_DISTANCE,
+    MIN_DISTANCE,
+    Z_LABEL,
+    Z_NODE,
+)
 from archmotion.core.vmobject import VMobject
 from archmotion.errors import TopologyError
 from archmotion.layout.bbox import estimate_text_bbox
@@ -56,7 +64,16 @@ class Node(VMobject):
         # resolver (see resolve_architecture). None means "manual center" or
         # "auto-placed root".
         self.position: RelativePosition | AbsolutePosition | None = None
-        super().__init__()
+        super().__init__(z_index=Z_NODE)
+        self._label_graphic = _make_label(
+            label,
+            center=self.center,
+            family=DEFAULT_FONT_FAMILY,
+            size=DEFAULT_FONT_SIZE,
+        )
+        if self._label_graphic is not None:
+            self._label_graphic.set_z(Z_LABEL)
+            self.add(self._label_graphic)
 
     # ── relative / absolute positioning (mirrors the v1 fluent API) ──
 
@@ -308,3 +325,25 @@ def _ellipse_contour(obj: VMobject, cx: float, cy: float, rx: float, ry: float) 
     obj.add_cubic_bezier((cx - rx, cy + ry * k), (cx - rx * k, cy + ry), (cx, cy + ry))
     obj.add_cubic_bezier((cx + rx * k, cy + ry), (cx + rx, cy + ry * k), (cx + rx, cy))
     obj.close_path()
+
+
+def _make_label(
+    label: str,
+    *,
+    center: Point,
+    family: str,
+    size: float,
+) -> VMobject | None:
+    """Create a real text child when glyph extraction is available."""
+    if not label:
+        return None
+    try:
+        from archmotion.domains.text.text import Text
+
+        text = Text(label, family=family, size=size)
+        text.move_to(*center)
+        return text
+    except (ImportError, RuntimeError):
+        # The browser editor uses React labels and intentionally ships without
+        # skia. Python/CLI installs skia as a required dependency.
+        return None

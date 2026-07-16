@@ -141,6 +141,14 @@ def test_style_with_fill_and_stroke():
     assert s.stroke_width == 4.0
 
 
+def test_style_normalizes_named_colors_and_rejects_invalid_values():
+    assert Style(fill_color="yellow").fill_color == "#ffff00"
+    with pytest.raises(ValueError, match="color must use"):
+        Style(fill_color="not-a-color")
+    with pytest.raises(ValueError, match="fill_opacity"):
+        Style(fill_opacity=1.5)
+
+
 # ── pathops ──────────────────────────────────────────────────────
 
 

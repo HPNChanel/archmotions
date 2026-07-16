@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import skia
 
+from archmotion.core.color import color_to_rgba01
 from archmotion.errors import SkiaAllocationError
 
 # ──────────────────────────────────────────────
@@ -37,30 +38,7 @@ def hex_to_color4f(hex_color: str, opacity: float = 1.0) -> skia.Color4f:
     Returns:
         skia.Color4f instance.
     """
-    h = hex_color.lstrip("#")
-
-    try:
-        if len(h) == 3:
-            r = int(h[0] * 2, 16) / 255.0
-            g = int(h[1] * 2, 16) / 255.0
-            b = int(h[2] * 2, 16) / 255.0
-            a = opacity
-        elif len(h) == 6:
-            r = int(h[0:2], 16) / 255.0
-            g = int(h[2:4], 16) / 255.0
-            b = int(h[4:6], 16) / 255.0
-            a = opacity
-        elif len(h) == 8:
-            r = int(h[0:2], 16) / 255.0
-            g = int(h[2:4], 16) / 255.0
-            b = int(h[4:6], 16) / 255.0
-            a = int(h[6:8], 16) / 255.0 * opacity
-        else:
-            r, g, b, a = 1.0, 1.0, 1.0, opacity
-    except ValueError:
-        # Invalid hex characters — fallback to white
-        r, g, b, a = 1.0, 1.0, 1.0, opacity
-
+    r, g, b, a = color_to_rgba01(hex_color, opacity)
     return skia.Color4f(r, g, b, a)
 
 
@@ -116,7 +94,16 @@ class SkiaCanvas:
         self._width = width
         self._height = height
 
-        self._surface = skia.Surface.MakeRasterN32Premul(width, height)
+        # ``N32`` is platform-native: BGRA on Windows and commonly RGBA on
+        # Unix.  Downstream consumers (Pillow and FFmpeg) require one stable
+        # byte contract, so allocate the raster surface explicitly as RGBA.
+        image_info = skia.ImageInfo.Make(
+            width,
+            height,
+            skia.ColorType.kRGBA_8888_ColorType,
+            skia.AlphaType.kPremul_AlphaType,
+        )
+        self._surface = skia.Surface.MakeRaster(image_info)
         if self._surface is None:
             raise SkiaAllocationError(width, height)
 

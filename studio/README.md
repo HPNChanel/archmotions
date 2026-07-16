@@ -1,7 +1,8 @@
-# ArchMotion Studio
+# ArchMotion Studio (Experimental)
 
-A zero-cost, fully client-side web editor for composing system-architecture
-animations and exporting **MP4 / Lottie / SVG / HTML** — no server compute.
+A fully client-side prototype for composing system-architecture animations and
+trying experimental **MP4 / Lottie / SVG / HTML** exports without server
+compute. Studio is not part of ArchMotion's production MP4/PNG contract.
 
 The real `archmotion` Python package runs in the browser via **Pyodide**
 (Python-on-WebAssembly). MP4 is encoded in-browser via **ffmpeg.wasm**
@@ -26,8 +27,9 @@ Canvas  ─────┘            │                          │
 - **YAML is the single source of truth.** Canvas edits surgically patch the YAML,
   which triggers a debounced recompile. On a parse error the canvas keeps the
   last valid state and shows the error banner.
-- **Node sizes come from the engine** (`Scene.to_layout_dict()`), so the canvas
-  always matches the exported video/Lottie exactly.
+- **Node sizes come from the engine** (`Scene.to_layout_dict()`), which keeps the
+  editor close to engine layout. Exact Studio/Lottie/MP4 visual parity is not yet
+  guaranteed.
 - **Absolute positioning** is additive & backward-compatible: a node may be
   positioned either relatively (`anchor/direction/distance`) or absolutely
   (`x/y` pixels). When any node is absolute, auto-centering is skipped.
@@ -47,9 +49,9 @@ python -m build --wheel --no-isolation --outdir studio/public/wheels
 This produces `studio/public/wheels/archmotion-<ver>-py3-none-any.whl`. The wheel
 is gitignored (it's a build artifact) and rebuilt by CI on deploy.
 
-> Only the export path (YAML → layout → timeline → Lottie/SVG/HTML) is used in
+> Only the experimental export path (YAML → layout → timeline → Lottie/SVG/HTML) is used in
 > the browser — it's pure Python and needs no `skia`/`Pillow`/`ffmpeg`. Pyodide
-> loads `pydantic` + `pyyaml` only.
+> loads `pydantic`, `pyyaml`, and `numpy`.
 
 ### 2. Install & run the frontend
 
@@ -72,7 +74,8 @@ same-origin` + `Cross-Origin-Embedder-Policy: require-corp` on all routes,
 which enables the multi-threaded ffmpeg.wasm core.
 
 The `.github/workflows/studio-deploy.yml` workflow builds the wheel + frontend
-and deploys on push to `main`. Set these to enable deploy:
+on relevant pushes. A live Firebase deployment runs only from a manual
+`workflow_dispatch` with the required credentials. Set these to enable deploy:
 
 - `FIREBASE_SERVICE_ACCOUNT` (secret) — service account JSON (Firebase console →
   Project settings → Service accounts → Generate new private key)
@@ -90,6 +93,8 @@ npx firebase deploy --only hosting
 
 - **First-load cost:** Pyodide is ~15 MB on first visit, then browser-cached. A
   loading screen reports progress.
+- **Preview density:** a 1920×1080 scene is scaled into the center column, so
+  labels can be difficult to inspect in a narrow browser window.
 - **ffmpeg.wasm isolation:** the Studio auto-selects the multi-threaded core
   when `self.crossOriginIsolated` is true (Firebase Hosting) and falls back to
   the single-threaded core otherwise (slower MP4, but still works).

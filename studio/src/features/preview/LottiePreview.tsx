@@ -87,7 +87,10 @@ export default function LottiePreview({ data, bg }: Props) {
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", background: bg }}>
       <div className="preview-host" style={{ flex: 1 }}>
-        <div ref={hostRef} style={{ maxWidth: "100%", maxHeight: "100%" }} />
+        <div
+          ref={hostRef}
+          style={{ width: "100%", height: "100%", maxWidth: "100%", maxHeight: "100%" }}
+        />
       </div>
       <div className="player-controls" style={{ background: "rgba(0,0,0,0.35)" }}>
         <button className="btn" onClick={togglePlay} title="Play/Pause">

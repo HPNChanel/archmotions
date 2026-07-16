@@ -7,7 +7,10 @@ that a single theme can restyle every Graphic at paint time.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
+
+from archmotion.core.color import normalize_color
 
 
 @dataclass(frozen=True)
@@ -34,6 +37,21 @@ class Style:
     glow_blur: float = 0.0
     corner_radius: float = 0.0
 
+    def __post_init__(self) -> None:
+        """Normalize colors and reject invalid numeric paint properties."""
+        for field_name in ("fill_color", "stroke_color", "glow_color"):
+            color = getattr(self, field_name)
+            if color is not None:
+                object.__setattr__(self, field_name, normalize_color(color))
+        for field_name in ("fill_opacity", "stroke_opacity"):
+            value = float(getattr(self, field_name))
+            if not math.isfinite(value) or not 0.0 <= value <= 1.0:
+                raise ValueError(f"{field_name} must be between 0 and 1")
+        for field_name in ("stroke_width", "glow_blur", "corner_radius"):
+            value = float(getattr(self, field_name))
+            if not math.isfinite(value) or value < 0.0:
+                raise ValueError(f"{field_name} must be a finite non-negative number")
+
     def with_fill(self, color: str | None, opacity: float | None = None) -> Style:
         """Return a copy with the fill updated."""
         return _replace(self, fill_color=color, fill_opacity=_or(opacity, self.fill_opacity))
@@ -50,6 +68,14 @@ class Style:
             stroke_color=color,
             stroke_width=_or(width, self.stroke_width),
             stroke_opacity=_or(opacity, self.stroke_opacity),
+        )
+
+    def with_glow(self, color: str | None, blur: float | None = None) -> Style:
+        """Return a copy with glow color and blur radius updated."""
+        return _replace(
+            self,
+            glow_color=color,
+            glow_blur=_or(blur, self.glow_blur),
         )
 
 

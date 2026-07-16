@@ -25,13 +25,14 @@ def test_highlight_ramps_then_holds():
     n = Node("X")
     sc = Scene(fps=30)
     sc.add(n)
-    sc.play(Highlight(n, run_time=2.0, intensity=0.9))
+    sc.play(Highlight(n, run_time=2.0, intensity=0.9, color="red"))
     tl = sc.compile_timeline()
     glow = [a for a in tl.property_actions if a.prop == Property.GLOW_INTENSITY]
     assert len(glow) == 2
     # The hold segment keeps peak intensity.
     assert glow[1].start_value == pytest.approx(0.9)
     assert glow[1].end_value == pytest.approx(0.9)
+    assert n.style.glow_color == "#ff0000"
 
 
 def test_colorshift_commits_end_color():

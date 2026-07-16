@@ -4,12 +4,16 @@ from archmotion.domains.geometry.coordinate_systems import (
     Axes,
     FunctionGraph,
     NumberLine,
+    NumberPlane,
     ParametricFunction,
 )
 from archmotion.domains.geometry.lines import Arrow, DashedLine, DoubleArrow
 from archmotion.domains.geometry.shapes import (
     Annulus,
     Arc,
+    ArcBetweenPoints,
+    Bezier,
+    Brace,
     Circle,
     Dot,
     Ellipse,
@@ -26,8 +30,11 @@ from archmotion.domains.geometry.shapes import (
 __all__ = [
     "Annulus",
     "Arc",
+    "ArcBetweenPoints",
     "Arrow",
     "Axes",
+    "Bezier",
+    "Brace",
     "Circle",
     "DashedLine",
     "Dot",
@@ -36,6 +43,7 @@ __all__ = [
     "FunctionGraph",
     "Line",
     "NumberLine",
+    "NumberPlane",
     "ParametricFunction",
     "Polygon",
     "Polyline",

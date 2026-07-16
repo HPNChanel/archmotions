@@ -11,7 +11,7 @@ from archmotion.animation import (
     FadeOut,
     Transform,
 )
-from archmotion.core import Property, Scene, VMobject
+from archmotion.core import Property, Scene, VMobject, ValueTracker, always_redraw
 
 
 class Square(VMobject):
@@ -155,6 +155,50 @@ def test_play_accepts_animate_builder():
     sc.play(a.animate.shift(50.0, 0.0).set_fill("#ff0000"))
     tl = sc.compile_timeline()
     assert any(x.target_id == a.id for x in tl.morph_actions)
+
+
+def test_value_tracker_builder_compiles_scalar_timeline():
+    sc = Scene(fps=10)
+    tracker = ValueTracker(2.0)
+    sc.play(tracker.animate.set_value(12.0).set_run_time(1.0))
+    timeline = sc.compile_timeline()
+
+    assert tracker in sc.graphics
+    assert timeline.snapshot_at(0.0).scalars[tracker.id][Property.VALUE] == 2.0
+    assert timeline.snapshot_at(0.5).scalars[tracker.id][Property.VALUE] == pytest.approx(7.0)
+    assert timeline.snapshot_at(1.0).scalars[tracker.id][Property.VALUE] == 12.0
+
+
+def test_always_redraw_reads_frame_local_tracker_value():
+    from archmotion.domains.geometry import Circle
+    from archmotion.render.frame import FrameSpec, render_frame
+
+    seen: list[float] = []
+    tracker = ValueTracker(0.0)
+
+    def factory():
+        value = tracker.get_value()
+        seen.append(value)
+        return Circle(radius=5.0 + value, center=(40.0, 40.0))
+
+    dynamic = always_redraw(factory)
+    sc = Scene(resolution=(80, 80), fps=10)
+    sc.add(tracker, dynamic)
+    sc.play(tracker.animate.set_value(10.0).set_run_time(1.0))
+    spec = FrameSpec(
+        frame_index=5,
+        width=80,
+        height=80,
+        fps=10,
+        graphics=[dynamic],
+        timeline=sc.compile_timeline(),
+        camera=sc.camera,
+        update_roots=sc.graphics,
+    )
+
+    render_frame(spec)
+    assert seen[-1] == pytest.approx(5.0)
+    assert dynamic.bounding_box().width == pytest.approx(20.0, abs=0.1)
 
 
 def test_play_requires_animation():

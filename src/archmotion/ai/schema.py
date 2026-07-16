@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
 
 from archmotion.constants import (
     MAX_CONNECTION_LABEL_LENGTH,
@@ -26,12 +26,22 @@ from archmotion.constants import (
     MAX_PAYLOAD_LENGTH,
     RESOLUTION_MAP,
 )
+from archmotion.core.color import normalize_color
+from archmotion.layout.bbox import estimate_text_bbox
+
+
+class StrictModel(BaseModel):
+    """Schema base that rejects misspelled or unsupported YAML fields."""
+
+    model_config = ConfigDict(extra="forbid")
+
 
 # ──────────────────────────────────────────────
 # Position Spec
 # ──────────────────────────────────────────────
 
-class RelativePositionSpec(BaseModel):
+
+class RelativePositionSpec(StrictModel):
     """Relative positioning for a node.
 
     Attributes:
@@ -45,7 +55,7 @@ class RelativePositionSpec(BaseModel):
     distance: float = Field(default=3.0, ge=1.0, le=20.0)
 
 
-class AbsolutePositionSpec(BaseModel):
+class AbsolutePositionSpec(StrictModel):
     """Absolute (freeform) pixel positioning for a node.
 
     Used by the ArchMotion Studio visual editor. The coordinate origin is the
@@ -73,7 +83,7 @@ PositionSpec = RelativePositionSpec | AbsolutePositionSpec
 NODE_TYPES = Literal["node", "database", "cloud", "queue", "cache", "user"]
 
 
-class NodeSpec(BaseModel):
+class NodeSpec(StrictModel):
     """A scene graph node (server, database, cloud service, etc.).
 
     Attributes:
@@ -93,7 +103,7 @@ class NodeSpec(BaseModel):
 
     @field_validator("provider")
     @classmethod
-    def provider_only_for_cloud(cls, v: str | None, info) -> str | None:
+    def provider_only_for_cloud(cls, v: str | None, info: ValidationInfo) -> str | None:
         """Provider field is only meaningful for cloud nodes."""
         if v is not None and info.data.get("type") != "cloud":
             msg = "provider field is only valid when type='cloud'"
@@ -106,7 +116,7 @@ class NodeSpec(BaseModel):
 # ──────────────────────────────────────────────
 
 
-class ConnectionSpec(BaseModel):
+class ConnectionSpec(StrictModel):
     """A directional edge between two nodes.
 
     Attributes:
@@ -137,12 +147,18 @@ class ConnectionSpec(BaseModel):
 # ──────────────────────────────────────────────
 
 ANIMATION_TYPES = Literal[
-    "fade_in", "fade_out", "transfer", "pulse",
-    "highlight", "color_shift", "scale_up", "scale_down",
+    "fade_in",
+    "fade_out",
+    "transfer",
+    "pulse",
+    "highlight",
+    "color_shift",
+    "scale_up",
+    "scale_down",
 ]
 
 
-class AnimationSpec(BaseModel):
+class AnimationSpec(StrictModel):
     """A single animation action.
 
     Fields are flexible — different animation types use different subsets.
@@ -178,13 +194,21 @@ class AnimationSpec(BaseModel):
     reverse: bool = False
     packet_color: str | None = Field(default=None, max_length=20)
 
+    @field_validator("color", "from_color", "to_color", "packet_color")
+    @classmethod
+    def validate_hex_color(cls, value: str | None) -> str | None:
+        """Reject colors the renderer would otherwise silently turn white."""
+        if value is None:
+            return None
+        return normalize_color(value)
+
 
 # ──────────────────────────────────────────────
 # Choreography Step
 # ──────────────────────────────────────────────
 
 
-class StepSpec(BaseModel):
+class StepSpec(StrictModel):
     """A single choreography step.
 
     Actions:
@@ -224,13 +248,13 @@ class StepSpec(BaseModel):
 # ──────────────────────────────────────────────
 
 
-class SceneSpec(BaseModel):
+class SceneSpec(StrictModel):
     """Root YAML schema for an ArchMotion scene.
 
     This is the top-level model that LLMs should generate.
 
     Attributes:
-        version: Schema version (currently '1.0').
+        version: Schema version. 2.0 is canonical; 1.0 remains readable.
         resolution: Video resolution preset.
         fps: Frame rate.
         nodes: List of scene graph nodes.
@@ -238,7 +262,7 @@ class SceneSpec(BaseModel):
         choreography: Ordered list of animation steps.
     """
 
-    version: str = "1.0"
+    version: Literal["1.0", "2.0"] = "2.0"
     theme: str = Field(default="dark_terminal", max_length=30)
     resolution: Literal["720p", "1080p", "1440p", "4k"] = "1080p"
     fps: int = Field(default=60, ge=15, le=120)
@@ -295,8 +319,7 @@ class SceneSpec(BaseModel):
                 node.position.anchor not in node_ids
             ):
                 msg = (
-                    f"Node '{node.id}' position references unknown anchor "
-                    f"'{node.position.anchor}'"
+                    f"Node '{node.id}' position references unknown anchor '{node.position.anchor}'"
                 )
                 raise ValueError(msg)
 
@@ -319,7 +342,9 @@ class SceneSpec(BaseModel):
                     msg = f"Animation references unknown target node '{anim.target}'"
                     raise ValueError(msg)
                 if anim.connection:
-                    refs = anim.connection if isinstance(anim.connection, list) else [anim.connection]
+                    refs = (
+                        anim.connection if isinstance(anim.connection, list) else [anim.connection]
+                    )
                     for ref in refs:
                         if ref not in conn_ids:
                             msg = f"Animation references unknown connection '{ref}'"
@@ -336,9 +361,10 @@ class SceneSpec(BaseModel):
         """
         canvas_w, canvas_h = RESOLUTION_MAP[self.resolution]
         for node in self.nodes:
-            if isinstance(node.position, AbsolutePositionSpec) and (
-                node.position.x > canvas_w or node.position.y > canvas_h
-            ):
+            if not isinstance(node.position, AbsolutePositionSpec):
+                continue
+            node_w, node_h = estimate_text_bbox(node.label)
+            if node.position.x + node_w > canvas_w or node.position.y + node_h > canvas_h:
                 msg = (
                     f"Node '{node.id}' absolute position "
                     f"({node.position.x}, {node.position.y}) exceeds canvas "

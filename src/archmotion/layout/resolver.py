@@ -82,6 +82,7 @@ class LayoutConnection(Protocol):
     def target(self) -> _Endpoint:
         """The connection's target node."""
 
+
 # ──────────────────────────────────────────────
 # Output Data Structure
 # ──────────────────────────────────────────────
@@ -563,4 +564,3 @@ def _route_connections(
         routes[conn.id] = route
 
     return routes
-

@@ -17,7 +17,7 @@ import json
 import sys
 from pathlib import Path
 
-from archmotion.animation import Create, FadeIn
+from archmotion.animation import FadeIn, Write
 from archmotion.core import Scene
 from archmotion.domains.architecture import Connection, Node
 from archmotion.render.tex import latex_available
@@ -38,7 +38,7 @@ def build_scene(equation) -> Scene:
     # Math domain — write the equation progressively above the diagram.
     equation.move_to(480.0, 150.0)
     scene.add(equation)
-    scene.play(Create(equation, run_time=1.5))
+    scene.play(Write(equation, run_time=1.5))
     scene.wait(0.5)
     return scene
 

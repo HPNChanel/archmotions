@@ -1,135 +1,64 @@
-# ARCHMOTION — PUBLIC ROADMAP
+# ArchMotion Roadmap
 
-> Tầm nhìn phát triển sản phẩm. Cập nhật mỗi khi chốt milestone.
+This roadmap starts from the v2.0 beta truth boundary. ArchMotion targets a
+useful 2D production workflow first; it does not treat version numbers or feature
+names as evidence of Manim parity.
 
----
+## Current: v2.0 2D production MVP
 
-## Tổng quan Version Strategy
+Done:
 
-```
-v0.1.0 (MVP)          v0.2.0 (Polish)        v1.0.0 (Production)
-   |                      |                       |
-   | Core Pipeline        | Extended API           | Web Export
-   | Basic Primitives     | YAML AI Interface      | SaaS Platform
-   | Single Theme         | Multi-Theme            | Plugin System
-   | CLI Only             | Error DX               | Community Ecosystem
-   |                      |                       |
-   v                      v                       v
-```
+- Python `Scene.construct()` authoring and strict YAML authoring.
+- Hierarchical vector scene graph, transforms, timelines, animation groups,
+  morphing, `ValueTracker`, and `always_redraw`.
+- Architecture, geometry, charts, text, math, and code domains.
+- Reliable CPU H.264 MP4 and PNG still output, including Windows execution.
+- CLI presets/overrides, Python scene discovery, build/install gates, real render
+  smoke tests, and cross-platform CI.
 
----
+Experimental in v2.0:
 
-## v0.1.0 — MVP (Current)
-**Mục tiêu:** Render được video MP4 từ Python code. Chứng minh concept hoạt động end-to-end.
+- Lottie, animated SVG, and HTML output.
+- Browser Studio and browser-side MP4 conversion.
+- Multiprocess/shared-memory tuning and hardware encoders.
 
-| Feature | Status | Ghi chú |
-|---|---|---|
-| Node + Database primitives | ✅ Done | Fluent API (.right_of, .below) |
-| Connection (Manhattan routing) | ✅ Done | L/I-shape, waypoints override |
-| FadeIn / FadeOut / Transfer / Pulse | ✅ Done | Validation + frozen dataclass |
-| 7 Easing functions | ✅ Done | Linear -> Bounce |
-| Scene (Virtual Clock + concurrent) | ✅ Done | Context manager pattern |
-| Exception hierarchy (12 types) | ✅ Done | Per-Phase error tree |
-| ThemeConfig (dark_terminal) | ✅ Done | Frozen dataclass |
-| FFmpeg binary resolution | ✅ Done | 3-tier fallback |
-| POC: skia + multiprocessing + ffmpeg | Done | 54.5fps, NVENC, 2.2s |
-| Layout Resolver (DAG -> pixels) | Done | Kahn + centering, 22 tests |
-| Timeline Compiler (animate -> actions) | Done | 4 decomposers, 26 tests |
-| Skia Renderer (frame painting) | Done | canvas + 4 painters, 35 tests |
-| Multiprocessing Exporter (Zero-Disk) | Done | FFmpegPipe + Pool, 13 tests |
-| Scene.render() full integration | Done | 4-phase pipeline, 11 tests |
+The exact matrix is maintained in [MVP_STATUS.md](MVP_STATUS.md).
 
-**Tiêu chí hoàn thành v0.1.0:**
-- `examples/01_hello_world.py` xuất được file MP4 chạy được
-- `pytest tests/` pass 100%
-- Peak RAM < 512MB cho video 10 giây
-- Render time < 30 giây trên i7-11800H
+## v2.1: release hardening
 
----
+- Add golden-image regression fixtures for colors, transforms, contours, text,
+  charts, and architecture packets on Windows/Linux/macOS.
+- Test every documented example as a clean-installed wheel, not an editable
+  checkout.
+- Add cancellation, structured render diagnostics, bounded resource policies,
+  and clearer FFmpeg/LaTeX installation failures.
+- Make experimental exporters pass a shared visual parity corpus or keep their
+  warnings and experimental labels.
+- Improve responsive Studio preview layout and automate browser runtime smoke.
 
-## v0.2.0 — Polish & Extend
-**Mục tiêu:** API phong phú hơn, YAML AI Interface, DX cao cấp.
+Exit condition: MP4/PNG regressions fail closed in CI and release artifacts are
+reproducibly installed and rendered on all supported operating systems.
 
-| Feature | Status | Ghi chú |
-|---|---|---|
-| Extended Primitives (Cloud, Queue, Cache, User) | ✅ Done | 4 subclasses, 4 painters, 32 tests |
-| Extended Animations (Highlight, ColorShift, Scale) | ✅ Done | 4 classes, 3 decomposers, 38 tests |
-| YAML AI Interface (LLM -> YAML -> Video) | ✅ Done | Pydantic schema + builder + 46 tests |
-| Rich error messages + progress bar | ✅ Done | DX package, 30 tests |
-| Multiple themes (neon, blueprint, light) | ✅ Done | PLAN-012 — 3 new themes |
-| Rounded corner routing | ✅ Done | PLAN-012 — `conn_corner_radius` 12px default |
-| A* Pathfinding (obstacle-aware routing) | ✅ Done | PLAN-013 — Visibility graph A* router |
-| SharedMemory optimization (IPC) | ✅ Done | PLAN-014 — Ring buffer + zero-copy IPC |
-| MkDocs documentation site | ✅ Done | PLAN-011 — MkDocs Material + 4 pages |
-| 5+ runnable examples | ✅ Done | PLAN-011 — 6 examples total |
+## v2.2: broader 2D authoring
 
-**Tiêu chí hoàn thành v0.2.0:**
-- Tất cả tính năng v0.1.0 stable
-- YAML file render thành công end-to-end
-- 80%+ test coverage trên core modules
-- Documentation site live trên GitHub Pages
+- Camera framing, pan/zoom, and scene sections.
+- Richer text/glyph selection, TeX templates, matrices, equations, braces, and
+  equation-to-equation transforms.
+- More layout primitives, labels, coordinate systems, graph discontinuities,
+  tables, images, and reusable composition helpers.
+- Audio tracks, narration timing, video compositing, transparent sequences, and
+  image-sequence export.
+- A documented extension API for custom graphics, animations, and exporters.
 
----
+Exit condition: a representative set of 2D educational Manim videos can be
+re-authored in ArchMotion without modifying engine internals.
 
-## v1.0.0 — Production Ready
-**Mục tiêu:** Sẵn sàng cho cộng đồng open-source sử dụng rộng rãi.
+## v3.x: parity lane, not MVP scope
 
-| Feature | Status | Ghi chú |
-|---|---|---|
-| WebGL / Lottie export | ✅ Done | PLAN-015 — Lottie JSON + minify |
-| Premium Icon Packs (AWS, GCP, K8s) | ⏳ Future | Open-Core Tier 1 |
-| Plugin system (custom primitives) | ⏳ Future | — |
-| Interactive HTML player | ✅ Done | PLAN-015 — lottie-web + controls |
-| Animated SVG export | ✅ Done | PLAN-015 — CSS @keyframes |
-| SaaS platform (ArchMotion Studio) | ⏳ Future | Open-Core Tier 3 |
+- Optional Manim-style compatibility helpers where semantics can be preserved.
+- Stable plugin and asset ecosystem.
+- GPU renderer and 3D camera/objects only after the 2D renderer and extension
+  contracts are stable.
 
-**Tiêu chí hoàn thành v1.0.0:**
-- Tất cả v0.2.0 stable
-- PyPI downloads > 1,000/month
-- GitHub Stars > 500
-- Community contributions (PRs from external devs)
-
----
-
-## Dependency Graph
-
-```
-PLAN-001 (POC)
-    |
-    +---> PLAN-004 (Skia Renderer)
-    |         |
-    |         +---> PLAN-005 (MP Exporter)
-    |
-    +---> PLAN-002 (Layout Resolver)
-              |
-              +---> PLAN-003 (Timeline Compiler)
-                        |
-                        +---> PLAN-006 (render() Integration)
-                                  |
-                                  +---> v0.1.0 RELEASE
-                                            |
-                                   +---------+---------+
-                                   |         |         |
-                             PLAN-007   PLAN-008   PLAN-009
-                             (Prims)    (Anims)    (YAML AI)
-                                   |         |         |
-                                   +---------+---------+
-                                             |
-                                   +---------+---------+
-                                   |         |         |
-                             PLAN-010   PLAN-011   PLAN-012
-                             (DX)      (Docs)     (Themes)
-                                   |         |         |
-                                   +---------+---------+
-                                             |
-                                      v0.2.0 RELEASE
-                                             |
-                                       PLAN-015
-                                      (Web Export)
-                                             |
-                                      v1.0.0 RELEASE
-```
-
----
-
-*Cập nhật lần cuối: 2026-06-13*
+ArchMotion will not claim drop-in Manim compatibility until existing scenes can
+be executed against a versioned compatibility test suite.

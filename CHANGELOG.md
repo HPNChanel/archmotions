@@ -6,6 +6,45 @@ and [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [Unreleased] — v2.0 beta
+
+### Added
+
+- Python `Scene` file loading with optional class selection, sibling imports,
+  lifecycle hooks, CLI quality presets, render overrides, and PNG still output.
+- Hierarchical scene graph transforms, topology-aware morphing, `Succession`,
+  `LaggedStart`, `ValueTracker`, and `always_redraw`.
+- General 2D geometry, axes/function plots, chart, text, math, and code domains
+  alongside the architecture domain.
+- Native LaTeX SVG `<defs>/<use>` expansion and a public `MathTex` alias.
+- Strict shared CSS color normalization and strict YAML unknown-field handling.
+- Cross-platform CI, coverage enforcement, artifact checks, clean wheel install,
+  and real MP4/PNG release smoke scenes.
+
+### Changed
+
+- Declared the project Beta and narrowed the production contract to H.264 MP4
+  and PNG. Lottie, SVG, HTML, hardware encoding, and Studio are explicitly
+  experimental.
+- Made `libx264` the deterministic default. Hardware encoding is opt-in and
+  NVENC must pass a real one-frame probe before selection.
+- Made the Windows automatic worker count one and forced updater-driven scenes
+  to single-process rendering for deterministic execution.
+- Updated theme/style inheritance, architecture labels/payload rendering,
+  signed chart data, coordinate mappings, exporter contour schemas, and the
+  public top-level API.
+
+### Fixed
+
+- Prevented recursive Windows multiprocessing in scripts and benchmarks.
+- Fixed shared-memory slot reuse races, FPS override handling, animation-group
+  retiming, multi-contour path creation, hierarchy ownership, and transform
+  interpolation.
+- Fixed native Skia BGRA output being mislabelled as RGBA on Windows; render
+  surfaces now use a canonical RGBA byte order for Pillow and FFmpeg.
+- Fixed Studio's Pyodide wheel installation (`deps=False`), preview sizing,
+  missing favicon, dependency audit findings, and reproducible wheel build path.
+
 ## [1.0.0] - 2026-06-13
 
 ### Added

@@ -1,162 +1,157 @@
-# ArchMotion 🎬
+# ArchMotion
 
-> **Code-to-Video Framework for System Architecture Animations**
+ArchMotion is a Python-first 2D vector animation engine for technical and
+educational videos. It provides a Manim-like scene workflow without claiming
+Manim API compatibility.
 
-Write Python code or YAML that describes your system architecture → Get professional MP4, Lottie, SVG, or HTML animations. No design skills needed.
+The v2.0 beta production contract is deliberately narrow: author scenes in
+Python or validated YAML, then render H.264 MP4 video or a PNG still. Lottie,
+animated SVG, HTML export, and the browser Studio are available as experimental
+surfaces.
 
-## ⚡ Quick Start
+See [MVP status](MVP_STATUS.md) for the exact support boundary and known gaps.
+
+## Install
 
 ```bash
-pip install archmotion
+python -m pip install archmotion
 ```
 
-### Python API
+Requirements: Python 3.10+; the Python package supplies its FFmpeg runtime via
+`imageio-ffmpeg`. A native `latex` + `dvisvgm` installation is only required for
+`Tex`, `MathTex`, and `MathText`.
+
+## Python scene
 
 ```python
-from archmotion import Scene, Node, Database, Connection, FadeIn, Transfer, Pulse
+from archmotion import Axes, Create, Dot, Scene, Text, ValueTracker, Write, always_redraw
 
-scene = Scene(resolution="1080p", fps=60, theme="dark_terminal")
 
-# Define your architecture
-client  = Node("Client")
-server  = Node("API Server").right_of(client, distance=4)
-db      = Database("PostgreSQL").right_of(server, distance=3)
+class Parabola(Scene):
+    def construct(self) -> None:
+        axes = Axes(
+            x_range=(-3, 3),
+            y_range=(-1, 5),
+            x_length=700,
+            y_length=380,
+            center=(640, 400),
+        )
+        graph = axes.plot(lambda x: 0.45 * x * x).set_stroke("#38bdf8", width=3)
+        title = Text("ArchMotion 2D").move_to(640, 80)
+        x = ValueTracker(-3)
 
-conn_cs = Connection(client, server)
-conn_sd = Connection(server, db)
+        def marker() -> Dot:
+            value = x.get_value()
+            dot = Dot(axes.c2p(value, 0.45 * value * value), radius=10)
+            dot.set_fill("yellow")
+            return dot
 
-# Choreograph the data flow
-with scene.concurrent():
-    scene.play(FadeIn(client, server, db, conn_cs, conn_sd))
+        self.add(axes, graph, title, x, always_redraw(marker))
+        self.play(Create(axes), Create(graph), Write(title))
+        self.play(x.animate.set_value(3).set_run_time(1.5))
 
-scene.play(Transfer(conn_cs, payload="GET /users", duration=1.0))
-scene.play(Pulse(server, color="yellow", duration=0.5))
-scene.play(Transfer(conn_sd, payload="SELECT *", duration=0.8))
-scene.play(Transfer([conn_sd, conn_cs], payload="200 OK", reverse=True, duration=1.5))
 
-# Export to any format
-scene.render("my_architecture.mp4")       # MP4 video
-scene.export("my_architecture.json")      # Lottie JSON
-scene.export("my_architecture.svg")       # Animated SVG
-scene.export("my_architecture.html")      # Interactive HTML player
+if __name__ == "__main__":
+    Parabola(resolution="720p", fps=30).render("parabola.mp4")
 ```
 
-### YAML (AI-Friendly)
+Render through the CLI instead of adding a `__main__` block:
+
+```bash
+archmotion render scene.py Parabola -qm -o parabola.mp4
+archmotion still scene.py Parabola -qm -o parabola.png
+```
+
+Quality presets are `-ql` (854×480/15 fps), `-qm` (1280×720/30 fps), and
+`-qh` (1920×1080/60 fps). Explicit `--resolution WIDTHxHEIGHT`, `--fps`,
+`--workers`, and `--crf` overrides are also supported.
+
+## YAML scene
 
 ```yaml
-scene:
-  resolution: "1080p"
-  fps: 60
-  theme: neon_cyber
-
+version: "2.0"
+theme: neon_cyber
+resolution: 1080p
+fps: 60
 nodes:
-  - id: client
-    label: "Client"
-    type: node
+  - {id: client, label: Client, type: user}
   - id: api
-    label: "API Server"
-    type: node
-    position: { anchor: client, direction: right, distance: 4 }
-  - id: db
-    label: "PostgreSQL"
-    type: database
-    position: { anchor: api, direction: right, distance: 3 }
-
+    label: API Server
+    position: {anchor: client, direction: right_of, distance: 4}
 connections:
-  - id: c1
-    source: client
-    target: api
-  - id: c2
-    source: api
-    target: db
-
+  - {id: request, source: client, target: api, label: HTTPS}
 choreography:
-  - play: { target: [client, api, db, c1, c2], animation: fade_in }
-  - play: { target: c1, animation: transfer, payload: "GET /users" }
-  - play: { target: c2, animation: transfer, payload: "SELECT *" }
+  - action: play
+    animation: {type: fade_in, targets: [client, api, request]}
+  - action: play
+    animation: {type: transfer, connection: request, payload: "GET /"}
 ```
-
-### CLI
 
 ```bash
-archmotion render scene.yaml -o output.mp4       # MP4 video
-archmotion render scene.yaml -o output.json      # Lottie JSON
-archmotion render scene.yaml -o output.html      # HTML player
-archmotion render scene.yaml --theme neon_cyber   # Custom theme
-archmotion themes                                 # List themes
+archmotion render scene.yaml -qm -o architecture.mp4
+archmotion still scene.yaml -qm -o architecture.png
 ```
 
-## 🎯 Features
+The YAML models reject unknown fields and invalid references instead of silently
+accepting a partially understood scene.
 
-| Feature | Description |
-|---|---|
-| **Multi-Format Export** | MP4, Lottie JSON, Animated SVG, Interactive HTML |
-| **Declarative API** | Describe architecture like you explain it to a colleague |
-| **YAML AI Interface** | LLMs can generate scenes via validated YAML schema |
-| **CLI** | `archmotion render` with auto format detection |
-| **Relative Positioning** | `.right_of()`, `.below()` — no pixel coordinates |
-| **4 Themes** | dark_terminal, neon_cyber, blueprint, light_paper |
-| **8 Animations** | FadeIn, FadeOut, Transfer, Pulse, Highlight, ColorShift, ScaleUp, ScaleDown |
-| **6 Primitives** | Node, Database, Cloud, Queue, Cache, User |
-| **A* Pathfinding** | Obstacle-aware connection routing |
-| **Zero-Copy IPC** | SharedMemory ring buffer for render workers |
-| **Hardware Accel** | NVIDIA NVENC encoding (auto-fallback to CPU) |
-| **1080p/60fps** | Professional quality output |
+## Production MVP capabilities
 
-## 🎨 Themes
+- Hierarchical 2D scene graph, affine transforms, groups, styles, themes, and
+  deterministic timelines.
+- Geometry, axes/function plots, architecture diagrams, charts, text, native
+  LaTeX outlines, and syntax-highlighted code blocks.
+- `FadeIn`/`FadeOut`, creation/writing, transforms, grouped sequencing,
+  architecture recipes, chart reveals, `ValueTracker`, and `always_redraw`.
+- CPU-baseline H.264 MP4 and RGBA PNG output through both Python and CLI.
+- Windows-safe single-process default; parallel rendering remains available on
+  supported scenes and platforms.
+- Strict typing, cross-platform CI, package build/install checks, and a real
+  MP4/PNG smoke scene in [`examples/12_mvp_scene.py`](examples/12_mvp_scene.py).
 
-| Theme | Style |
-|---|---|
-| `dark_terminal` | Dark background, muted colors (default) |
-| `neon_cyber` | Vibrant neon on black — cyberpunk aesthetic |
-| `blueprint` | Technical blue gridlines — engineering style |
-| `light_paper` | Light background — clean documentation style |
+## Experimental capabilities
 
-## 📖 Examples
+- Lottie JSON, animated SVG, and HTML player exports. The CLI emits an explicit
+  warning because these formats do not yet have full MP4 feature parity.
+- ArchMotion Studio (React + Pyodide) for YAML editing and browser previews.
+- Shared-memory rendering and opt-in hardware encoding via
+  `ARCHMOTION_HARDWARE_ENCODER=auto`.
 
-See the [`examples/`](examples/) directory for runnable scripts:
+## Not a drop-in Manim replacement
 
-| Example | Description |
-|---|---|
-| [`01_hello_world.py`](examples/01_hello_world.py) | Minimal — 2 nodes + 1 connection |
-| [`02_login_flow.py`](examples/02_login_flow.py) | Full login flow with Auth + DB |
-| [`03_concurrent_requests.py`](examples/03_concurrent_requests.py) | Parallel animations |
-| [`04_microservices.py`](examples/04_microservices.py) | Microservice architecture |
-| [`05_cloud_infrastructure.py`](examples/05_cloud_infrastructure.py) | Cloud + Queue + Cache |
-| [`06_yaml_workflow.py`](examples/06_yaml_workflow.py) | YAML → Scene → Video |
+ArchMotion can now cover an MVP subset of 2D technical animation, but existing
+Manim scenes cannot be imported unchanged. It does not yet provide 3D/OpenGL,
+audio/video compositing, a moving-camera API, TeX template management, plugins,
+or Manim's breadth of objects and community ecosystem.
 
-## 🏗️ Architecture
+## Documentation
 
-ArchMotion uses a **4-Phase Pipeline** — data flows one-way through isolated stages:
+- [MVP support matrix and gaps](MVP_STATUS.md)
+- [Architecture](docs/architecture.md)
+- [API reference](docs/api.md)
+- [Examples](examples/README.md)
+- [Roadmap](ROADMAP.md)
+- [Changelog](CHANGELOG.md)
 
-```
-User Code / YAML → [Topology] → [Layout] → [Timeline] → [Renderer] → MP4 / Lottie / SVG / HTML
-```
-
-Read the [Architecture Documentation](CORE_ENGINE&ARCHITECTURE.md) for details.
-
-## 📦 Installation
+## Development
 
 ```bash
-# Standard install
-pip install archmotion
-
-# With development tools
-pip install archmotion[dev]
-
-# With documentation tools
-pip install archmotion[docs]
-
-# Using uv (recommended — 10x faster)
-uv pip install archmotion
+python -m pip install -e ".[dev]"
+ruff check src
+ruff format --check src
+mypy src/archmotion --strict --ignore-missing-imports
+pytest tests/unit -q --cov=archmotion
 ```
 
-**Requirements:** Python 3.10+ · FFmpeg (bundled) · Optional: NVIDIA GPU for hardware encoding
+Studio is an experimental, separately checked surface:
 
-## 🤝 Contributing
+```bash
+cd studio
+npm ci
+npm run lint
+npm run build
+```
 
-We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+## License
 
-## 📄 License
-
-[MIT](LICENSE) — Free for personal and commercial use.
+[MIT](LICENSE)

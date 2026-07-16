@@ -25,7 +25,13 @@ choreography:
     animation: { type: transfer, connection: c1, payload: GET }
 """
 
-scene = parse_yaml_string(yaml)
-out = os.path.join(tempfile.gettempdir(), "cli_e2e.mp4")
-scene.render(out)
-print(f"E2E: {os.path.getsize(out)} bytes at {out}")
+def main() -> None:
+    """Render the public YAML smoke scene without recursive Windows spawning."""
+    scene = parse_yaml_string(yaml)
+    out = os.path.join(tempfile.gettempdir(), "cli_e2e.mp4")
+    scene.render(out, workers=1)
+    print(f"E2E: {os.path.getsize(out)} bytes at {out}")
+
+
+if __name__ == "__main__":
+    main()

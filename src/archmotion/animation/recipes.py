@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING
 
 from archmotion.animation.base import Animation
 from archmotion.core import easing
+from archmotion.core.color import color_to_rgb01
 from archmotion.core.property import MorphAction, Property, PropertyAction
 
 if TYPE_CHECKING:
@@ -24,18 +25,10 @@ if TYPE_CHECKING:
 
 
 def _hex_to_rgb01(color: str | None) -> tuple[float, float, float]:
-    """Parse a hex/CSS color to (R, G, B) floats; white fallback."""
+    """Parse a supported color to (R, G, B) floats."""
     if color is None:
         return (1.0, 1.0, 1.0)
-    c = color.lstrip("#")
-    if len(c) == 3:
-        c = "".join(ch * 2 for ch in c)
-    if len(c) != 6:
-        return (1.0, 1.0, 1.0)
-    try:
-        return (int(c[0:2], 16) / 255.0, int(c[2:4], 16) / 255.0, int(c[4:6], 16) / 255.0)
-    except ValueError:
-        return (1.0, 1.0, 1.0)
+    return color_to_rgb01(color)
 
 
 class Transfer(Animation):
@@ -78,11 +71,20 @@ class Transfer(Animation):
         self._packet.opacity = 1.0
 
     def compile(self, start_time: float) -> list[PropertyAction | MorphAction]:
-        """Emit a PATH_PROGRESS action for the packet along the connection."""
+        """Emit path motion plus an explicit visible-only-during interval."""
         end_time = start_time + self.run_time
         start_val = 1.0 if self._reverse else 0.0
         end_val = 0.0 if self._reverse else 1.0
         return [
+            PropertyAction(
+                target_id=self._packet.id,
+                prop=Property.OPACITY,
+                start_time=0.0,
+                end_time=start_time,
+                start_value=0.0,
+                end_value=0.0,
+                easing="linear",
+            ),
             PropertyAction(
                 target_id=self._packet.id,
                 prop=Property.PATH_PROGRESS,
@@ -91,7 +93,25 @@ class Transfer(Animation):
                 start_value=start_val,
                 end_value=end_val,
                 easing=self.rate_func,
-            )
+            ),
+            PropertyAction(
+                target_id=self._packet.id,
+                prop=Property.OPACITY,
+                start_time=start_time,
+                end_time=end_time,
+                start_value=1.0,
+                end_value=1.0,
+                easing="linear",
+            ),
+            PropertyAction(
+                target_id=self._packet.id,
+                prop=Property.OPACITY,
+                start_time=end_time,
+                end_time=end_time,
+                start_value=0.0,
+                end_value=0.0,
+                easing="linear",
+            ),
         ]
 
     def finish(self) -> None:
@@ -121,6 +141,10 @@ class Pulse(Animation):
     def targets(self) -> list[Graphic]:
         """The target being pulsed."""
         return [self._target]
+
+    def begin(self) -> None:
+        """Attach the requested glow color before compiling intensity."""
+        self._target.style = self._target.style.with_glow(self._color, blur=8.0)
 
     def compile(self, start_time: float) -> list[PropertyAction | MorphAction]:
         """Emit ramp-up + ramp-down GLOW_INTENSITY actions."""
@@ -155,6 +179,7 @@ class Highlight(Animation):
         self,
         target: Graphic,
         *,
+        color: str = "#ffffff",
         intensity: float = 0.8,
         run_time: float = 2.0,
         rate_func: str = "ease_in",
@@ -163,11 +188,16 @@ class Highlight(Animation):
         """Store target + glow parameters."""
         super().__init__(run_time=run_time, rate_func=rate_func, duration=duration)
         self._target = target
+        self._color = color
         self._intensity = intensity
 
     def targets(self) -> list[Graphic]:
         """The target being highlighted."""
         return [self._target]
+
+    def begin(self) -> None:
+        """Attach the requested glow color before compiling intensity."""
+        self._target.style = self._target.style.with_glow(self._color, blur=8.0)
 
     def compile(self, start_time: float) -> list[PropertyAction | MorphAction]:
         """Emit a quick ramp-up then a hold at peak."""
@@ -314,3 +344,290 @@ class ScaleDown(Scale):
     ) -> None:
         """Store target + factor (default 0.77)."""
         super().__init__(target, factor, run_time=run_time, rate_func=rate_func, duration=duration)
+
+
+# ──────────────────────────────────────────────
+# Chart animations
+# ──────────────────────────────────────────────
+
+
+class DrawLine(Animation):
+    """Progressively draw a line chart / polyline (CREATE_PROGRESS 0 → 1)."""
+
+    def __init__(
+        self,
+        target: Graphic,
+        run_time: float = 1.0,
+        rate_func: str = "smooth",
+        duration: float | None = None,
+    ) -> None:
+        """Store the target + timing for a progressive line draw."""
+        super().__init__(run_time=run_time, rate_func=rate_func, duration=duration)
+        self._target = target
+
+    def targets(self) -> list[Graphic]:
+        """The line being drawn."""
+        return [self._target]
+
+    def compile(self, start_time: float) -> list[PropertyAction | MorphAction]:
+        """Emit a CREATE_PROGRESS 0 → 1 action."""
+        end_time = start_time + self.run_time
+        return [
+            PropertyAction(
+                target_id=self._target.id,
+                prop=Property.CREATE_PROGRESS,
+                start_time=start_time,
+                end_time=end_time,
+                start_value=0.0,
+                end_value=1.0,
+                easing=self.rate_func,
+            )
+        ]
+
+    def finish(self) -> None:
+        """Mark the target fully drawn."""
+        self._target.opacity = 1.0
+
+
+class SweepPie(Animation):
+    """Reveal a pie chart by sweeping its slices (CREATE_PROGRESS 0 → 1)."""
+
+    def __init__(
+        self,
+        target: Graphic,
+        run_time: float = 1.0,
+        rate_func: str = "smooth",
+        duration: float | None = None,
+    ) -> None:
+        """Store the target + timing for a pie sweep reveal."""
+        super().__init__(run_time=run_time, rate_func=rate_func, duration=duration)
+        self._target = target
+
+    def targets(self) -> list[Graphic]:
+        """The pie being swept."""
+        return [self._target]
+
+    def compile(self, start_time: float) -> list[PropertyAction | MorphAction]:
+        """Emit a CREATE_PROGRESS 0 → 1 action (slices reveal in path order)."""
+        end_time = start_time + self.run_time
+        return [
+            PropertyAction(
+                target_id=self._target.id,
+                prop=Property.CREATE_PROGRESS,
+                start_time=start_time,
+                end_time=end_time,
+                start_value=0.0,
+                end_value=1.0,
+                easing=self.rate_func,
+            )
+        ]
+
+    def finish(self) -> None:
+        """Mark the target fully drawn."""
+        self._target.opacity = 1.0
+
+
+# ──────────────────────────────────────────────
+# Indicator / effect animations
+# ──────────────────────────────────────────────
+
+
+class Flash(Animation):
+    """Brief emphasis: scale up then back + glow spike.
+
+    Two sequential SCALE actions (1 → 1.5, then 1.5 → 1) plus a GLOW_INTENSITY
+    spike (0 → 1 → 0). The target returns to its original size.
+    """
+
+    def __init__(
+        self,
+        target: Graphic,
+        run_time: float = 0.5,
+        rate_func: str = "ease_out",
+        duration: float | None = None,
+    ) -> None:
+        """Store the target + timing for a flash emphasis."""
+        super().__init__(run_time=run_time, rate_func=rate_func, duration=duration)
+        self._target = target
+
+    def targets(self) -> list[Graphic]:
+        """The target being flashed."""
+        return [self._target]
+
+    def compile(self, start_time: float) -> list[PropertyAction | MorphAction]:
+        """Emit SCALE up/down + GLOW spike actions."""
+        half = start_time + self.run_time / 2
+        end_time = start_time + self.run_time
+        return [
+            PropertyAction(
+                target_id=self._target.id,
+                prop=Property.SCALE,
+                start_time=start_time,
+                end_time=half,
+                start_value=1.0,
+                end_value=1.5,
+                easing=self.rate_func,
+            ),
+            PropertyAction(
+                target_id=self._target.id,
+                prop=Property.SCALE,
+                start_time=half,
+                end_time=end_time,
+                start_value=1.5,
+                end_value=1.0,
+                easing=self.rate_func,
+            ),
+            PropertyAction(
+                target_id=self._target.id,
+                prop=Property.GLOW_INTENSITY,
+                start_time=start_time,
+                end_time=half,
+                start_value=0.0,
+                end_value=1.0,
+                easing=self.rate_func,
+            ),
+            PropertyAction(
+                target_id=self._target.id,
+                prop=Property.GLOW_INTENSITY,
+                start_time=half,
+                end_time=end_time,
+                start_value=1.0,
+                end_value=0.0,
+                easing=self.rate_func,
+            ),
+        ]
+
+
+class Indicate(Animation):
+    """Draw attention: scale up slightly + flash fill color, then back.
+
+    Two sequential SCALE actions (1 → 1.1 → 1) plus a FILL color tween to a
+    highlight color and back.
+    """
+
+    def __init__(
+        self,
+        target: Graphic,
+        color: str = "#ffeb3b",
+        run_time: float = 0.5,
+        rate_func: str = "ease_out",
+        duration: float | None = None,
+    ) -> None:
+        """Store the target + highlight color + timing."""
+        super().__init__(run_time=run_time, rate_func=rate_func, duration=duration)
+        self._target = target
+        self._orig_color = target.style.fill_color
+        self._flash_color = color
+
+    def targets(self) -> list[Graphic]:
+        """The target being indicated."""
+        return [self._target]
+
+    def compile(self, start_time: float) -> list[PropertyAction | MorphAction]:
+        """Emit SCALE up/down + FILL color tween to highlight and back."""
+        half = start_time + self.run_time / 2
+        end_time = start_time + self.run_time
+        orig = _hex_to_rgb01(self._orig_color)
+        flash = _hex_to_rgb01(self._flash_color)
+        actions: list[PropertyAction | MorphAction] = [
+            PropertyAction(
+                target_id=self._target.id,
+                prop=Property.SCALE,
+                start_time=start_time,
+                end_time=half,
+                start_value=1.0,
+                end_value=1.1,
+                easing=self.rate_func,
+            ),
+            PropertyAction(
+                target_id=self._target.id,
+                prop=Property.SCALE,
+                start_time=half,
+                end_time=end_time,
+                start_value=1.1,
+                end_value=1.0,
+                easing=self.rate_func,
+            ),
+        ]
+        for prop, ov, fv in (
+            (Property.FILL_R, orig[0], flash[0]),
+            (Property.FILL_G, orig[1], flash[1]),
+            (Property.FILL_B, orig[2], flash[2]),
+        ):
+            actions.append(
+                PropertyAction(
+                    target_id=self._target.id,
+                    prop=prop,
+                    start_time=start_time,
+                    end_time=half,
+                    start_value=ov,
+                    end_value=fv,
+                    easing=self.rate_func,
+                )
+            )
+            actions.append(
+                PropertyAction(
+                    target_id=self._target.id,
+                    prop=prop,
+                    start_time=half,
+                    end_time=end_time,
+                    start_value=fv,
+                    end_value=ov,
+                    easing=self.rate_func,
+                )
+            )
+        return actions
+
+
+class FadeToColor(Animation):
+    """Convenience color tween: fade the target's fill to ``color``.
+
+    Reads the target's current ``style.fill_color`` as the starting color, so
+    callers don't need to specify it (unlike :class:`ColorShift`).
+    """
+
+    def __init__(
+        self,
+        target: Graphic,
+        color: str,
+        *,
+        run_time: float = 0.8,
+        rate_func: str = easing.DEFAULT_EASING,
+        duration: float | None = None,
+    ) -> None:
+        """Store target + target color + timing."""
+        super().__init__(run_time=run_time, rate_func=rate_func, duration=duration)
+        self._target = target
+        self._from = _hex_to_rgb01(target.style.fill_color)
+        self._to = _hex_to_rgb01(color)
+        self._to_hex = color
+
+    def targets(self) -> list[Graphic]:
+        """The target whose color changes."""
+        return [self._target]
+
+    def compile(self, start_time: float) -> list[PropertyAction | MorphAction]:
+        """Emit FILL_R/G/B scalar tweens."""
+        end_time = start_time + self.run_time
+        actions: list[PropertyAction | MorphAction] = []
+        for prop, sv, tv in (
+            (Property.FILL_R, self._from[0], self._to[0]),
+            (Property.FILL_G, self._from[1], self._to[1]),
+            (Property.FILL_B, self._from[2], self._to[2]),
+        ):
+            actions.append(
+                PropertyAction(
+                    target_id=self._target.id,
+                    prop=prop,
+                    start_time=start_time,
+                    end_time=end_time,
+                    start_value=sv,
+                    end_value=tv,
+                    easing=self.rate_func,
+                )
+            )
+        return actions
+
+    def finish(self) -> None:
+        """Commit the end fill color on the target's style."""
+        self._target.set_fill(self._to_hex)

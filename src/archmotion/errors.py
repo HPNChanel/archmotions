@@ -52,6 +52,7 @@ class DuplicateIdError(TopologyError):
     """
 
     def __init__(self, object_id: str) -> None:
+        """Store the duplicated object ID."""
         self.object_id = object_id
         super().__init__(f"Duplicate object ID: '{object_id}'")
 
@@ -64,6 +65,7 @@ class CircularReferenceError(TopologyError):
     """
 
     def __init__(self, cycle_path: list[str]) -> None:
+        """Store and format the detected cycle path."""
         self.cycle_path = cycle_path
         chain = " → ".join(cycle_path)
         super().__init__(f"Circular positioning reference detected: {chain}")
@@ -99,13 +101,14 @@ class OverflowCanvasError(LayoutError):
         canvas_width: int,
         canvas_height: int,
     ) -> None:
+        """Store required and available canvas dimensions."""
         self.required_width = required_width
         self.required_height = required_height
         self.canvas_width = canvas_width
         self.canvas_height = canvas_height
         super().__init__(
-            f"Diagram ({required_width:.0f}×{required_height:.0f}px) exceeds "
-            f"canvas ({canvas_width}×{canvas_height}px). "
+            f"Diagram ({required_width:.0f}x{required_height:.0f}px) exceeds "
+            f"canvas ({canvas_width}x{canvas_height}px). "
             "Reduce node count or distance values."
         )
 
@@ -118,6 +121,7 @@ class OrphanNodeError(LayoutError):
     """
 
     def __init__(self, node_label: str) -> None:
+        """Store the orphaned node label."""
         self.node_label = node_label
         super().__init__(
             f"Node '{node_label}' has no position and is not a root anchor. "
@@ -138,6 +142,7 @@ class EmptyTimelineError(TimelineError):
     """No animations were recorded before render() was called."""
 
     def __init__(self) -> None:
+        """Build an actionable empty-timeline message."""
         super().__init__(
             "No animations recorded. Call scene.play() at least once before scene.render()."
         )
@@ -159,6 +164,7 @@ class FFmpegNotFoundError(RenderError):
     """
 
     def __init__(self) -> None:
+        """Build an actionable FFmpeg installation message."""
         super().__init__(
             "FFmpeg not found. Install it with: pip install imageio-ffmpeg\n"
             "Or set the FFMPEG_BINARY environment variable."
@@ -174,11 +180,11 @@ class FFmpegCrashError(RenderError):
     """
 
     def __init__(self, returncode: int, stderr_output: str) -> None:
+        """Store FFmpeg's return code and bounded stderr output."""
         self.returncode = returncode
         self.stderr_output = stderr_output
         super().__init__(
-            f"FFmpeg crashed with exit code {returncode}.\n"
-            f"stderr: {stderr_output[:500]}"
+            f"FFmpeg crashed with exit code {returncode}.\nstderr: {stderr_output[:500]}"
         )
 
 
@@ -191,9 +197,10 @@ class SkiaAllocationError(RenderError):
     """
 
     def __init__(self, width: int, height: int) -> None:
+        """Store the canvas dimensions that could not be allocated."""
         self.width = width
         self.height = height
         super().__init__(
-            f"Failed to allocate Skia Surface ({width}×{height}). "
+            f"Failed to allocate Skia Surface ({width}x{height}). "
             "Reduce resolution or free system memory."
         )

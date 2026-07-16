@@ -13,9 +13,9 @@ Architectural Note:
 
 from __future__ import annotations
 
-from archmotion.dx._progress import RenderProgress, create_progress_callback
 from archmotion.dx._errors import format_error, print_error
 from archmotion.dx._logging import setup_logging
+from archmotion.dx._progress import RenderProgress, create_progress_callback
 
 __all__ = [
     "RenderProgress",

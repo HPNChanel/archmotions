@@ -11,6 +11,8 @@ binaries, which are NOT available in Pyodide (math scenes render CLI/MP4 only).
 
 from __future__ import annotations
 
+import math
+import re
 import shutil
 import subprocess
 import tempfile
@@ -18,6 +20,7 @@ from pathlib import Path
 from xml.etree import ElementTree
 
 from archmotion.core.svg_path import ParsedPath, parse_svg_path
+from archmotion.core.transform import Transform
 from archmotion.core.vmobject import VMobject
 
 _TEX_TEMPLATE = r"""\documentclass[12pt]{standalone}
@@ -54,8 +57,14 @@ def tex_to_vmobject(latex_expr: str, *, font_size: float = 1.0) -> VMobject:
         tex_path.write_text(_TEX_TEMPLATE % latex_expr, encoding="utf-8")
 
         _run(
-            ["latex", "-interaction=nonstopmode", "-halt-on-error",
-             "-output-directory", str(work), str(tex_path)],
+            [
+                "latex",
+                "-interaction=nonstopmode",
+                "-halt-on-error",
+                "-output-directory",
+                str(work),
+                str(tex_path),
+            ],
             work,
         )
         dvi = work / "expr.dvi"
@@ -88,18 +97,129 @@ def _run(cmd: list[str], cwd: Path) -> None:
 
 
 def _extract_paths(svg_path: Path) -> list[ParsedPath]:
-    """Extract and parse all ``<path d=...>`` from an SVG file."""
+    """Resolve SVG paths, including dvisvgm ``defs/use`` glyph placement."""
     tree = ElementTree.parse(svg_path)  # noqa: S314
     root = tree.getroot()
-    ns = "{http://www.w3.org/2000/svg}"
+    definitions = {
+        element_id: element
+        for element in root.iter()
+        if (element_id := element.get("id")) is not None
+    }
     out: list[ParsedPath] = []
-    for elem in root.iter():
-        tag = elem.tag
-        if tag == f"{ns}path" or tag.endswith("}path") or tag == "path":
-            d = elem.get("d")
+
+    def walk(
+        element: ElementTree.Element,
+        parent_transform: Transform,
+        *,
+        from_reference: bool = False,
+        reference_stack: frozenset[str] = frozenset(),
+    ) -> None:
+        local = _parse_transform(element.get("transform"))
+        transform = parent_transform.compose(local)
+        tag = _local_name(element.tag)
+        if tag == "defs" and not from_reference:
+            return
+        if tag == "use":
+            href = element.get("href") or element.get("{http://www.w3.org/1999/xlink}href")
+            if not href or not href.startswith("#"):
+                return
+            reference_id = href[1:]
+            if reference_id in reference_stack:
+                raise RuntimeError(f"Circular SVG reference: {reference_id}")
+            referenced = definitions.get(reference_id)
+            if referenced is None:
+                raise RuntimeError(f"Unknown SVG reference: {href}")
+            x = _svg_number(element.get("x"), 0.0)
+            y = _svg_number(element.get("y"), 0.0)
+            placement = transform.compose(Transform.translation(x, y))
+            walk(
+                referenced,
+                placement,
+                from_reference=True,
+                reference_stack=reference_stack | {reference_id},
+            )
+            return
+        if tag == "path":
+            d = element.get("d")
             if d:
-                out.append(parse_svg_path(d))
+                out.append(_transform_parsed(parse_svg_path(d), transform))
+            return
+        for child in element:
+            walk(
+                child,
+                transform,
+                from_reference=from_reference,
+                reference_stack=reference_stack,
+            )
+
+    walk(root, Transform.identity())
     return out
+
+
+_TRANSFORM_RE = re.compile(r"([A-Za-z]+)\s*\(([^)]*)\)")
+_NUMBER_RE = re.compile(r"[-+]?(?:\d*\.\d+|\d+\.?)(?:[eE][-+]?\d+)?")
+
+
+def _parse_transform(value: str | None) -> Transform:
+    """Parse common SVG affine transform functions into one matrix."""
+    result = Transform.identity()
+    if not value:
+        return result
+    for name, raw_args in _TRANSFORM_RE.findall(value):
+        args = [float(item) for item in _NUMBER_RE.findall(raw_args)]
+        lowered = name.lower()
+        if lowered == "matrix" and len(args) == 6:
+            a, b, c, d, e, f = args
+            operation = Transform([[a, c, e], [b, d, f], [0.0, 0.0, 1.0]])
+        elif lowered == "translate" and 1 <= len(args) <= 2:
+            operation = Transform.translation(args[0], args[1] if len(args) == 2 else 0.0)
+        elif lowered == "scale" and 1 <= len(args) <= 2:
+            operation = Transform.scaling(args[0], args[1] if len(args) == 2 else None)
+        elif lowered == "rotate" and len(args) in {1, 3}:
+            rotation = Transform.rotation(args[0])
+            if len(args) == 3:
+                cx, cy = args[1], args[2]
+                operation = (
+                    Transform.translation(cx, cy)
+                    .compose(rotation)
+                    .compose(Transform.translation(-cx, -cy))
+                )
+            else:
+                operation = rotation
+        elif lowered == "skewx" and len(args) == 1:
+            operation = Transform(
+                [[1.0, math.tan(math.radians(args[0])), 0.0], [0.0, 1.0, 0.0], [0, 0, 1]]
+            )
+        elif lowered == "skewy" and len(args) == 1:
+            operation = Transform(
+                [[1.0, 0.0, 0.0], [math.tan(math.radians(args[0])), 1.0, 0.0], [0, 0, 1]]
+            )
+        else:
+            raise RuntimeError(f"Unsupported SVG transform: {name}({raw_args})")
+        result = result.compose(operation)
+    return result
+
+
+def _transform_parsed(parsed: ParsedPath, transform: Transform) -> ParsedPath:
+    """Apply an affine transform without changing path topology."""
+    points = transform.apply_to_points(parsed.points)
+    return ParsedPath(
+        points=[(float(point[0]), float(point[1])) for point in points],
+        contour_starts=list(parsed.contour_starts),
+    )
+
+
+def _local_name(tag: str) -> str:
+    """Strip an optional XML namespace from an element name."""
+    return tag.rsplit("}", 1)[-1]
+
+
+def _svg_number(value: str | None, default: float) -> float:
+    """Parse a numeric SVG attribute, tolerating a unit suffix."""
+    if value is None:
+        return default
+    match = _NUMBER_RE.search(value)
+    return float(match.group(0)) if match else default
 
 
 def _apply_parsed(obj: VMobject, parsed: ParsedPath, scale: float) -> None:

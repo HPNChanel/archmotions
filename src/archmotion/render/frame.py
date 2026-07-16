@@ -8,8 +8,7 @@ single-frame function so the same data can later be farmed to a worker pool.
 
 from __future__ import annotations
 
-import subprocess
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING
 
 from archmotion.core.vmobject import VMobject
@@ -20,9 +19,13 @@ from archmotion.render.path_render import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from archmotion.core.camera import Camera
+    from archmotion.core.graphic import Graphic
     from archmotion.core.property import CompiledTimeline
     from archmotion.core.scene import Scene
+    from archmotion.render.theme import ThemeConfig
 
 
 @dataclass
@@ -37,6 +40,8 @@ class FrameSpec:
     timeline: CompiledTimeline
     camera: Camera
     background_rgba: tuple[float, float, float, float] = DEFAULT_BACKGROUND_RGBA
+    theme: ThemeConfig | None = None
+    update_roots: list[Graphic] = field(default_factory=list)
     extra: dict[str, object] = field(default_factory=dict)
 
 
@@ -48,14 +53,33 @@ def render_frame(spec: FrameSpec) -> bytes:
     try:
         canvas.clear(rgba_to_color4f(spec.background_rgba))
         snapshot = spec.timeline.snapshot_at_frame(spec.frame_index)
-        for graphic in spec.graphics:
-            state = resolve_effective(
-                graphic,
-                snapshot.scalars.get(graphic.id),
-                snapshot.morphs.get(graphic.id),
-                spec.camera,
-            )
-            paint_effective(canvas.native, state)
+        from archmotion.core.property import Property
+        from archmotion.core.updaters import reset_render_values, set_render_values
+        from archmotion.render.path_render import theme_style_for
+
+        tracker_values = {
+            target_id: values[Property.VALUE]
+            for target_id, values in snapshot.scalars.items()
+            if Property.VALUE in values
+        }
+        token = set_render_values(tracker_values)
+        try:
+            dt = 0.0 if spec.frame_index == 0 else 1.0 / spec.fps
+            for root in spec.update_roots:
+                root.update(dt)
+            for graphic in spec.graphics:
+                state = resolve_effective(
+                    graphic,
+                    snapshot.scalars.get(graphic.id),
+                    snapshot.morphs.get(graphic.id),
+                    spec.camera,
+                    theme_style_for(graphic, spec.theme),
+                    scalar_lookup=snapshot.scalars,
+                    morph_contour_starts=snapshot.morph_contours.get(graphic.id),
+                )
+                paint_effective(canvas.native, state)
+        finally:
+            reset_render_values(token)
         return canvas.snapshot()
     finally:
         canvas.dispose()
@@ -67,42 +91,27 @@ def render_scene(
     *,
     fps: int | None = None,
     crf: int = 20,
+    on_progress: Callable[[int, int], None] | None = None,
 ) -> str:
     """Render the scene to ``output_path`` (MP4). Returns the path."""
-    import imageio_ffmpeg
-
     eff_fps = fps if fps is not None else scene.fps
-    timeline = scene.compile_timeline()
+    timeline = replace(scene.compile_timeline(), fps=eff_fps)
     graphics = [g for g in scene.all_graphics() if isinstance(g, VMobject)]
     width, height = scene.resolution
 
-    ffmpeg_bin = imageio_ffmpeg.get_ffmpeg_exe()
-    cmd = [
-        ffmpeg_bin,
-        "-y",
-        "-f", "rawvideo",
-        "-pix_fmt", "rgba",
-        "-s", f"{width}x{height}",
-        "-r", str(eff_fps),
-        "-i", "-",
-        "-c:v", "libx264",
-        "-pix_fmt", "yuv420p",
-        "-crf", str(crf),
-        "-preset", "veryfast",
-        output_path,
-    ]
-
     total_frames = max(1, timeline.total_frames)
-    proc = subprocess.Popen(
-        cmd,
-        stdin=subprocess.PIPE,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.PIPE,
+    from pathlib import Path
+
+    from archmotion.render.ffmpeg import FFmpegPipe, cpu_encoder
+
+    pipe = FFmpegPipe.open(
+        Path(output_path),
+        width,
+        height,
+        eff_fps,
+        encoder=cpu_encoder(crf),
+        crf=crf,
     )
-    if proc.stdin is None:
-        msg = "Failed to open FFmpeg stdin pipe."
-        raise RuntimeError(msg)
-    stdin = proc.stdin
 
     try:
         for frame_index in range(total_frames):
@@ -115,17 +124,17 @@ def render_scene(
                 timeline=timeline,
                 camera=scene.camera,
                 background_rgba=_background(scene),
+                theme=scene.theme,
+                update_roots=scene.graphics,
             )
             frame_bytes = render_frame(spec)
-            stdin.write(frame_bytes)
-        stdin.close()
-        stderr = proc.communicate(timeout=300)[1]
-        if proc.returncode != 0:
-            msg = f"FFmpeg failed (code {proc.returncode}):\n{stderr.decode(errors='replace')}"
-            raise RuntimeError(msg)
-    finally:
-        if proc.poll() is None:
-            proc.kill()
+            pipe.write_frame(frame_bytes)
+            if on_progress is not None:
+                on_progress(frame_index + 1, total_frames)
+        pipe.close()
+    except Exception:
+        pipe.kill()
+        raise
 
     return output_path
 

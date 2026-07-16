@@ -1,5 +1,5 @@
-"""Charts domain: BarChart, LineChart, PieChart."""
+"""Charts domain: BarChart, LineChart, PieChart, ScatterPlot."""
 
-from archmotion.domains.charts.charts import BarChart, LineChart, PieChart
+from archmotion.domains.charts.charts import BarChart, LineChart, PieChart, ScatterPlot
 
-__all__ = ["BarChart", "LineChart", "PieChart"]
+__all__ = ["BarChart", "LineChart", "PieChart", "ScatterPlot"]

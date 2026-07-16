@@ -5,6 +5,11 @@ a **point-array Bézier geometry**, so any two shapes can `Transform` into each 
 Architecture animation remains a first-class domain (DAG layout, A\*-routed
 connections, data-flow packets) fused with general-purpose graphics.
 
+> **v2.0 support boundary:** MP4 and PNG are production-MVP outputs. Lottie,
+> SVG, HTML, Studio, shared-memory tuning, and hardware encoding are
+> experimental. ArchMotion is not API-compatible with Manim; see
+> [MVP status](https://github.com/archmotion/archmotion/blob/main/MVP_STATUS.md).
+
 ---
 
 ## Pipeline Overview
@@ -22,7 +27,7 @@ graph LR
     end
     subgraph "Render / Export"
         D["FrameSpec × N"]
-        E["MP4 / Lottie / SVG / HTML"]
+        E["MP4 / PNG\n+ experimental vector exports"]
     end
 
     A -->|"resolve_architecture()"| B
@@ -44,19 +49,19 @@ src/archmotion/
     scene.py            Scene — virtual clock, play/wait, layout, render/export
     transform.py        Affine 3×3 transform
     style.py            Style dataclass (fill/stroke colors + opacities)
+    color.py            Shared strict CSS color normalization
+    updaters.py         ValueTracker + frame-local always_redraw support
     pathops.py          Bézier utilities (length, point-at-t, resample, align)
     property.py         Property enum + PropertyAction/MorphAction + CompiledTimeline
   animation/
-    base.py             Animation base, AnimationGroup, .animate builder, FadeIn/Out, Transform
+    base.py             Animation base/groups, .animate, creation, writing, transforms
     recipes.py          Transfer, Pulse, Highlight, ColorShift, ScaleUp/Down
-    creation.py         Create, DrawBorderThenFill
-    writing.py          Write (per-glyph)
   render/
     path_render.py      Generic VMobject → Skia painter (one renderer for ALL shapes)
     frame.py            FrameSpec + render_frame (single-frame) + render_scene (single-process)
-    pool.py             Parallel worker pool + SharedMemory zero-copy IPC → MP4
-    shm.py              SharedMemory ring buffer (zero-copy frame IPC)
-    ffmpeg.py           FFmpeg binary resolution + NVENC detection + stdin pipe
+    pool.py             Single/parallel frame orchestration → MP4
+    shm.py              Optional SharedMemory ring buffer
+    ffmpeg.py           CPU H.264 baseline + opt-in probed NVENC + stdin pipe
     canvas.py           Skia canvas wrapper
     theme.py            ThemeConfig + THEMES (4 themes)
     tex.py              LaTeX → dvisvgm → VMobject points (math domain)
@@ -73,6 +78,7 @@ src/archmotion/
     svg_v2.py           VMobjects → animated SVG (CSS @keyframes)
     html_v2.py          Self-contained lottie-web HTML player
   ai/                   YAML schema (Pydantic) + builder → Scene
+  loader.py             Isolated Python Scene module loading
   dx/, errors.py, constants.py, __main__.py
 ```
 
@@ -120,12 +126,19 @@ Animations compile into a pure-data `CompiledTimeline` (`core/property.py`):
 | Animation | Resolves to |
 |---|---|
 | `FadeIn(node)` / `FadeOut(node)` | `OPACITY: 0 → 1` / `1 → 0` |
+| `Create(node)` / `Write(text)` / `Uncreate` | `CREATE_PROGRESS: 0 → 1` / `1 → 0` (path-trim) |
+| `DrawBorderThenFill(node)` | `CREATE_PROGRESS` + `FILL_OPACITY` (stroke then fill) |
+| `Transform(a, b)` / `ReplacementTransform` | `MorphAction` (point-array interpolation) |
 | `Transfer(conn)` | `PATH_PROGRESS: 0 → 1` (packet slides along route) |
 | `Pulse(node)` | `GLOW_INTENSITY: 0 → peak → 0` |
 | `Highlight(node)` | `GLOW_INTENSITY: 0 → intensity` (persistent) |
-| `ColorShift(node)` | `FILL_R/G/B: from → to` |
+| `ColorShift(node)` / `FadeToColor(node)` | `FILL_R/G/B: from → to` |
 | `ScaleUp` / `ScaleDown` | `SCALE: 1 → factor` / `factor → 1` |
-| `Transform(a, b)` | `MorphAction` (point-array interpolation) |
+| `GrowFromCenter` / `GrowFromEdge` | `SCALE: 0 → 1` + `OPACITY: 0 → 1` (+ position) |
+| `GrowBar(bar)` | `MorphAction` (zero-height → full) |
+| `DrawLine(line)` / `SweepPie(pie)` | `CREATE_PROGRESS: 0 → 1` (progressive draw) |
+| `Flash` / `Indicate` | `SCALE` + `GLOW`/`FILL` spike (up then back) |
+| `Typewriter(text)` | `CREATE_PROGRESS: 0 → 1` (linear, approximate per-glyph) |
 
 `CompiledTimeline.snapshot_at_frame(frame)` resolves the full per-target state —
 scalars + active morphs — in one pass.
@@ -134,25 +147,28 @@ scalars + active morphs — in one pass.
 
 ## Render & Export
 
-### MP4 (parallel pipeline)
+### MP4 and PNG production path
 
-1. **Compile once** — build the timeline + collect paintable VMobjects.
-2. **Shared context** — the immutable `(graphics, timeline, camera, dims)` is
-   pickled **once** to each worker via a Pool initializer (not per frame).
-3. **SharedMemory ring** — workers write RGBA bytes into pre-allocated
-   SharedMemory slots (zero-copy, zero-serialization). Falls back to standard
-   pickle IPC on platforms where SharedMemory is unavailable.
-4. **Pool.imap** — frames rendered in parallel across CPU cores; `imap` preserves
-   sequential ordering for the FFmpeg stdin stream.
-5. **FFmpegPipe** — raw RGBA → stdin → H.264 (`h264_nvenc` GPU when available,
-   else `libx264`). Zero disk I/O.
+1. **Construct once** — run the Scene lifecycle, resolve layout, compile the
+   timeline, and collect paintable VMobjects.
+2. **Evaluate frames** — apply timeline snapshots, hierarchy transforms, theme
+   inheritance, and frame-local updaters.
+3. **Paint canonical RGBA** — Skia uses an explicitly RGBA raster surface on
+   every OS; platform-native `N32` is intentionally avoided because it is BGRA
+   on Windows.
+4. **Encode** — raw RGBA streams directly to FFmpeg `libx264`/`yuv420p` with no
+   intermediate image sequence. PNG stills pass the same bytes to Pillow.
 
-Worker sizing: `min(cpu_count × WORKER_RATIO, MAX_WORKERS)`.
+Windows defaults to one process to make normal scripts safe under spawn.
+Updater-driven scenes also force one process. Other scenes/platforms may use a
+worker pool; the SharedMemory ring and hardware encoders are opt-in experimental
+optimizations rather than release requirements.
 
 ```python
-scene.render("out.mp4")                    # parallel pool (default)
-scene.render("out.mp4", workers=1)         # single-process fallback
+scene.render("out.mp4")                    # reliable platform default
+scene.render("out.mp4", workers=1)         # deterministic explicit baseline
 scene.render("out.mp4", show_progress=True)
+scene.save_frame("out.png")                # final scene frame
 ```
 
 ### Generic path renderer
@@ -162,11 +178,12 @@ Skia `Path` from the Bézier control points, applies the graphic's transform +
 camera matrix, and fills/strokes per `style`. This replaces per-type painters and
 is what makes cross-domain `Transform` possible.
 
-### Vector exports (Skia-free)
+### Experimental vector exports (Skia-free)
 
 `exporter/{lottie_v2,svg_v2,html_v2}.py` consume the point-array graphics +
 compiled actions directly — no Skia/FFmpeg needed, so they run in the browser
-(ArchMotion Studio / Pyodide).
+(ArchMotion Studio / Pyodide). They are structurally tested but do not yet carry
+the MP4 visual-parity guarantee.
 
 ---
 
@@ -185,8 +202,7 @@ scene.play(Transform(db, Circle(radius=55).move_to(520, 270)))
 scene.play(Transform(db, PieChart([3, 7, 5, 9], radius=60, center=(760, 340))))
 ```
 
-Point-count alignment (`align_points`) handles mismatched topologies via
-resampling, the same approach Manim uses.
+Point-count and contour alignment handles mismatched topologies via resampling.
 
 ---
 

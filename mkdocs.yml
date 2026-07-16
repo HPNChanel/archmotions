@@ -1,5 +1,5 @@
 site_name: ArchMotion
-site_description: "Code-to-Video framework for system architecture animations"
+site_description: "Python/YAML 2D vector animation engine"
 site_url: https://archmotion.github.io/archmotion/
 
 repo_name: archmotion/archmotion
@@ -62,6 +62,7 @@ markdown_extensions:
 
 nav:
   - Home: index.md
+  - MVP Status: https://github.com/archmotion/archmotion/blob/main/MVP_STATUS.md
   - Getting Started:
     - Installation: index.md
   - Architecture: architecture.md

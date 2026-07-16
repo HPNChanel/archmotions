@@ -25,8 +25,10 @@ from archmotion.core.transform import Transform
 
 if TYPE_CHECKING:
     from archmotion.core.camera import Camera
+    from archmotion.core.graphic import Graphic
     from archmotion.core.style import Style
     from archmotion.core.vmobject import VMobject
+    from archmotion.render.theme import ThemeConfig
 
 
 DEFAULT_FILL = "#3b82f6"
@@ -58,6 +60,9 @@ def resolve_effective(
     morph_points: object | None,
     camera: Camera,
     theme_defaults: Style | None = None,
+    *,
+    scalar_lookup: dict[str, dict[Property, float]] | None = None,
+    morph_contour_starts: tuple[int, ...] | None = None,
 ) -> EffectiveState:
     """Compute the effective render state for a graphic at one timestamp."""
     scalars = scalars or {}
@@ -68,73 +73,68 @@ def resolve_effective(
     else:
         pts = raw_points
 
-    contour_starts = graphic.contour_starts
+    contour_starts = list(morph_contour_starts) if morph_contour_starts else graphic.contour_starts
 
-    # Authored transform applied to points (for center computation).
-    authored_matrix = graphic.transform.matrix
+    lookup = scalar_lookup or {graphic.id: scalars}
+    family = [*graphic.ancestors(), graphic]
 
-    # Center of the (authored-transformed) points for animated scale/rotate.
-    if pts.shape[0] > 0:
-        authored_pts = Transform(authored_matrix).apply_to_points(pts)
-        cx = float(authored_pts[:, 0].mean())
-        cy = float(authored_pts[:, 1].mean())
-    else:
-        cx, cy = 0.0, 0.0
+    # Compose local transforms recursively.  Full affine components emitted by
+    # ``.animate`` override the authored (already-final) local transform at the
+    # requested timestamp, preserving parent/child hierarchy.
+    world = Transform.identity()
+    for member in family:
+        member_scalars = lookup.get(member.id, {})
+        world = world.compose(_local_transform(member, member_scalars))
 
-    anim = Transform.identity()
-    pos_x = scalars.get(Property.POSITION_X)
-    pos_y = scalars.get(Property.POSITION_Y)
-    # A packet travelling along a connection derives its position from
-    # PATH_PROGRESS (its connection's resolved route).
-    path_progress = scalars.get(Property.PATH_PROGRESS)
-    if path_progress is not None:
-        connection = getattr(graphic, "connection", None)
-        if connection is not None:
-            route_x, route_y = connection.point_at_progress(path_progress)
-            if pos_x is None:
-                pos_x = route_x
-            if pos_y is None:
-                pos_y = route_y
-    if pos_x is not None or pos_y is not None:
-        tx = pos_x - cx if pos_x is not None else 0.0
-        ty = pos_y - cy if pos_y is not None else 0.0
-        anim = Transform.translation(tx, ty).compose(anim)
+    # Legacy recipe properties (scale/rotation/absolute position) are post-world
+    # transforms.  Applying ancestor transforms first makes group animations
+    # affect every descendant without duplicating timeline actions.
+    post = Transform.identity()
+    for member in family:
+        member_scalars = lookup.get(member.id, {})
+        post = post.compose(_legacy_animation_transform(member, member_scalars))
 
-    scale = scalars.get(Property.SCALE)
-    if scale is not None and abs(scale - 1.0) > 1e-6:
-        to_origin = Transform.translation(-cx, -cy)
-        back = Transform.translation(cx, cy)
-        anim = back.compose(Transform.scaling(scale)).compose(to_origin).compose(anim)
-
-    rotation = scalars.get(Property.ROTATION)
-    if rotation is not None and abs(rotation) > 1e-6:
-        to_origin = Transform.translation(-cx, -cy)
-        back = Transform.translation(cx, cy)
-        anim = back.compose(Transform.rotation(rotation)).compose(to_origin).compose(anim)
-
-    final = camera.view.compose(anim).compose(graphic.transform)
+    final = camera.view.compose(post).compose(world)
 
     style = graphic.style
     defaults = theme_defaults
 
-    opacity = scalars.get(Property.OPACITY, graphic.opacity)
+    opacity = 1.0
+    for member in family:
+        member_scalars = lookup.get(member.id, {})
+        opacity *= member_scalars.get(Property.OPACITY, member.opacity)
     fill_color = _resolve_color(
-        scalars, Property.FILL_R, Property.FILL_G, Property.FILL_B, style.fill_color, defaults
+        scalars,
+        Property.FILL_R,
+        Property.FILL_G,
+        Property.FILL_B,
+        _inherited_color(family, "fill_color"),
+        defaults,
     )
-    fill_opacity = scalars.get(Property.FILL_OPACITY, style.fill_opacity)
+    fill_opacity = scalars.get(
+        Property.FILL_OPACITY,
+        _inherited_product(family, "fill_opacity"),
+    )
     stroke_color = _resolve_color(
         scalars,
         Property.STROKE_R,
         Property.STROKE_G,
         Property.STROKE_B,
-        style.stroke_color,
+        _inherited_color(family, "stroke_color"),
         defaults,
     )
-    stroke_width = scalars.get(Property.STROKE_WIDTH, style.stroke_width)
-    stroke_opacity = scalars.get(Property.STROKE_OPACITY, style.stroke_opacity)
-    glow_color = style.glow_color
+    inherited_stroke_width = _inherited_value(family, "stroke_width", style.stroke_width)
+    stroke_width = scalars.get(Property.STROKE_WIDTH, inherited_stroke_width)
+    stroke_opacity = scalars.get(
+        Property.STROKE_OPACITY,
+        _inherited_product(family, "stroke_opacity"),
+    )
+    glow_color = _inherited_color(family, "glow_color")
     glow_intensity = scalars.get(Property.GLOW_INTENSITY, 0.0 if style.glow_blur <= 0 else 1.0)
-    create_progress = scalars.get(Property.CREATE_PROGRESS, 1.0)
+    create_progress = min(
+        (lookup.get(member.id, {}).get(Property.CREATE_PROGRESS, 1.0) for member in family),
+        default=1.0,
+    )
 
     return EffectiveState(
         points=pts,
@@ -150,6 +150,145 @@ def resolve_effective(
         glow_intensity=glow_intensity,
         create_progress=create_progress,
     )
+
+
+_AFFINE_PROPS = (
+    Property.TRANSFORM_A,
+    Property.TRANSFORM_B,
+    Property.TRANSFORM_C,
+    Property.TRANSFORM_D,
+    Property.TRANSFORM_TX,
+    Property.TRANSFORM_TY,
+)
+
+
+def _local_transform(
+    graphic: Graphic,
+    scalars: dict[Property, float],
+) -> Transform:
+    """Resolve a graphic's authored or timeline-overridden local transform."""
+    if not any(prop in scalars for prop in _AFFINE_PROPS):
+        return graphic.transform
+    matrix = np.asarray(graphic.transform.matrix, dtype=np.float64).copy()
+    defaults = (
+        matrix[0, 0],
+        matrix[1, 0],
+        matrix[0, 1],
+        matrix[1, 1],
+        matrix[0, 2],
+        matrix[1, 2],
+    )
+    a, b, c, d, tx, ty = (
+        scalars.get(prop, float(default))
+        for prop, default in zip(_AFFINE_PROPS, defaults, strict=True)
+    )
+    return Transform([[a, c, tx], [b, d, ty], [0.0, 0.0, 1.0]])
+
+
+def _legacy_animation_transform(
+    graphic: Graphic,
+    scalars: dict[Property, float],
+) -> Transform:
+    """Resolve recipe-scale/rotation/position properties in canvas space."""
+    bbox = graphic.bounding_box()
+    cx, cy = bbox.center
+    pos_x = scalars.get(Property.POSITION_X)
+    pos_y = scalars.get(Property.POSITION_Y)
+    progress = scalars.get(Property.PATH_PROGRESS)
+    if progress is not None:
+        connection = getattr(graphic, "connection", None)
+        if connection is not None:
+            route_x, route_y = connection.point_at_progress(progress)
+            pos_x = route_x if pos_x is None else pos_x
+            pos_y = route_y if pos_y is None else pos_y
+
+    transform = Transform.identity()
+    if pos_x is not None or pos_y is not None:
+        transform = Transform.translation(
+            (pos_x - cx) if pos_x is not None else 0.0,
+            (pos_y - cy) if pos_y is not None else 0.0,
+        ).compose(transform)
+    scale = scalars.get(Property.SCALE, 1.0)
+    rotation = scalars.get(Property.ROTATION, 0.0)
+    if abs(scale - 1.0) > 1e-6 or abs(rotation) > 1e-6:
+        around_center = (
+            Transform.translation(cx, cy)
+            .compose(Transform.rotation(rotation))
+            .compose(Transform.scaling(scale))
+            .compose(Transform.translation(-cx, -cy))
+        )
+        transform = around_center.compose(transform)
+    return transform
+
+
+def _inherited_color(family: list[Graphic], field: str) -> str | None:
+    """Return the nearest explicitly configured color in the family chain."""
+    for member in reversed(family):
+        value = getattr(member.style, field)
+        if value is not None:
+            return str(value)
+    return None
+
+
+def _inherited_product(family: list[Graphic], field: str) -> float:
+    """Multiply alpha-like style fields through the family chain."""
+    value = 1.0
+    for member in family:
+        value *= float(getattr(member.style, field))
+    return value
+
+
+def _inherited_value(family: list[Graphic], field: str, fallback: float) -> float:
+    """Use a parent's value when that parent explicitly supplies the style."""
+    for member in reversed(family[:-1]):
+        style = member.style
+        if style.stroke_color is not None:
+            return float(getattr(style, field))
+    return float(fallback)
+
+
+def theme_style_for(graphic: Graphic, theme: ThemeConfig | None) -> Style | None:
+    """Map theme tokens to a domain-aware fallback Style."""
+    if theme is None:
+        return None
+    from archmotion.core.style import Style
+    from archmotion.domains.architecture.connections import Connection
+    from archmotion.domains.architecture.packet import Packet
+    from archmotion.domains.architecture.primitives import Database, Node
+    from archmotion.domains.text.text import Text
+
+    if isinstance(graphic, Text):
+        return Style(
+            fill_color=theme.font_color,
+            stroke_color=None,
+            stroke_width=0.0,
+        )
+    if isinstance(graphic, Packet):
+        return Style(
+            fill_color=theme.packet_color,
+            stroke_color=theme.packet_color,
+            stroke_width=1.0,
+        )
+    if isinstance(graphic, Connection):
+        return Style(
+            fill_color=theme.conn_stroke,
+            fill_opacity=0.0,
+            stroke_color=theme.conn_stroke,
+            stroke_width=theme.conn_stroke_width,
+        )
+    if isinstance(graphic, Database):
+        return Style(
+            fill_color=theme.db_fill,
+            stroke_color=theme.db_border,
+            stroke_width=theme.node_border_width,
+        )
+    if isinstance(graphic, Node):
+        return Style(
+            fill_color=theme.node_fill,
+            stroke_color=theme.node_border,
+            stroke_width=theme.node_border_width,
+        )
+    return Style(fill_color=theme.node_fill, stroke_color=theme.node_border)
 
 
 def _resolve_color(
@@ -198,9 +337,12 @@ def build_skia_path(points: object, contour_starts: list[int]) -> object:
         j = start + 1
         while j + 2 < end:
             path.cubicTo(
-                float(pts[j][0]), float(pts[j][1]),
-                float(pts[j + 1][0]), float(pts[j + 1][1]),
-                float(pts[j + 2][0]), float(pts[j + 2][1]),
+                float(pts[j][0]),
+                float(pts[j][1]),
+                float(pts[j + 1][0]),
+                float(pts[j + 1][1]),
+                float(pts[j + 2][0]),
+                float(pts[j + 2][1]),
             )
             j += 3
         if j < end:
@@ -231,9 +373,15 @@ def paint_effective(native: Any, state: EffectiveState) -> None:  # noqa: ANN401
 
     matrix = np.asarray(state.matrix, dtype=np.float64)
     m = [
-        float(matrix[0][0]), float(matrix[0][1]), float(matrix[0][2]),
-        float(matrix[1][0]), float(matrix[1][1]), float(matrix[1][2]),
-        0.0, 0.0, 1.0,
+        float(matrix[0][0]),
+        float(matrix[0][1]),
+        float(matrix[0][2]),
+        float(matrix[1][0]),
+        float(matrix[1][1]),
+        float(matrix[1][2]),
+        0.0,
+        0.0,
+        1.0,
     ]
     native.save()
     native.concat(skia.Matrix(m))
@@ -272,15 +420,28 @@ def paint_effective(native: Any, state: EffectiveState) -> None:  # noqa: ANN401
 
 
 def _trim_path(path: object, progress: float) -> object:
-    """Return the first ``progress`` fraction of a skia path (for Create)."""
+    """Return the first fraction of a path across all of its contours."""
     import skia
 
     measure = skia.PathMeasure(path, False)
-    total = measure.getLength()
+    lengths: list[float] = []
+    while True:
+        lengths.append(float(measure.getLength()))
+        if not measure.nextContour():
+            break
+    total = sum(lengths)
     if total <= 0:
         return path
+    remaining = total * max(0.0, min(1.0, progress))
     dst = skia.Path()
-    measure.getSegment(0.0, total * max(0.0, min(1.0, progress)), dst, True)
+    measure = skia.PathMeasure(path, False)
+    for length in lengths:
+        take = min(length, remaining)
+        if take > 0:
+            measure.getSegment(0.0, take, dst, True)
+        remaining -= take
+        if remaining <= 0 or not measure.nextContour():
+            break
     return dst
 
 

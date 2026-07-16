@@ -1,9 +1,10 @@
-"""Multiprocessing pool orchestration for parallel frame rendering (v2).
+"""Single/parallel process orchestration for frame rendering (v2).
 
 Architectural Note:
-    This module manages the ``Pool.imap()`` → :class:`~archmotion.render.ffmpeg.FFmpegPipe`
-    pipeline. Frames are rendered in parallel by worker processes, then streamed
-    to FFmpeg in sequential order (``imap`` preserves order).
+    This module manages the frame → :class:`~archmotion.render.ffmpeg.FFmpegPipe`
+    pipeline. Windows and updater-driven scenes use a deterministic single
+    process. Eligible scenes on other platforms may use ``Pool.imap()`` while
+    preserving sequential FFmpeg input order.
 
     v2 IPC design (improves on v1):
         The immutable render context (graphics list + compiled timeline + camera +
@@ -12,27 +13,28 @@ Architectural Note:
         ``frame_index`` (and a SharedMemory slot name in shm mode). This avoids
         re-pickling the multi-MB graphics/timeline payload for every frame.
 
-    SharedMemory output ring:
+    Optional SharedMemory output ring:
         Workers write rendered RGBA bytes directly into pre-allocated
         :class:`~archmotion.render.shm.SharedMemoryRing` slots (zero-copy,
         zero-serialization). The main process reads from shared memory and pipes
-        to FFmpeg. Falls back to standard pickle IPC if SharedMemory allocation
-        fails (e.g. Windows CI / platform limits).
+        to FFmpeg. This mode is opt-in and falls back to standard pickle IPC if
+        allocation fails.
 
     Zero-Disk I/O: raw RGBA bytes flow from workers → shared memory → FFmpeg stdin.
     No temporary files are ever written to disk.
 
     Worker Sizing:
-        ``workers = min(cpu_count * WORKER_RATIO, MAX_WORKERS)``
-        This leaves headroom for the OS, FFmpeg encoding, and the main process.
+        Windows defaults to one. Other platforms use
+        ``min(cpu_count * WORKER_RATIO, MAX_WORKERS)`` unless explicitly set.
 """
 
 from __future__ import annotations
 
 import logging
 import multiprocessing as mp
+import sys
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -48,8 +50,10 @@ from archmotion.render.shm import (
 
 if TYPE_CHECKING:
     from archmotion.core.camera import Camera
+    from archmotion.core.graphic import Graphic
     from archmotion.core.property import CompiledTimeline
     from archmotion.core.vmobject import VMobject
+    from archmotion.render.theme import ThemeConfig
 
 logger = logging.getLogger("archmotion.render")
 
@@ -116,6 +120,8 @@ class RenderContext:
     height: int
     fps: int
     background_rgba: tuple[float, float, float, float]
+    theme: ThemeConfig | None = None
+    update_roots: tuple[Graphic, ...] = ()
 
 
 # Module-global context set once per worker process by the initializer.
@@ -140,6 +146,8 @@ def _build_spec(frame_index: int) -> FrameSpec:
         timeline=_CTX.timeline,
         camera=_CTX.camera,
         background_rgba=_CTX.background_rgba,
+        theme=_CTX.theme,
+        update_roots=list(_CTX.update_roots),
     )
 
 
@@ -190,6 +198,10 @@ def compute_worker_count(workers: int | None = None) -> int:
     """
     if workers is not None:
         return max(1, workers)
+    if sys.platform == "win32":
+        # Spawn re-imports the user's scene module. A reliable default must not
+        # require every first-time script to understand multiprocessing guards.
+        return 1
     cpu_count = mp.cpu_count() or 4
     return max(1, min(int(cpu_count * WORKER_RATIO), MAX_WORKERS))
 
@@ -207,7 +219,7 @@ def render_pool(
     crf: int = 20,
     workers: int | None = None,
     on_progress: ProgressCallback | None = None,
-    use_shared_memory: bool = True,
+    use_shared_memory: bool = False,
 ) -> ExportResult:
     """Render ``scene`` to ``output_path`` (MP4) using a parallel worker pool.
 
@@ -238,11 +250,13 @@ def render_pool(
     from archmotion.core.vmobject import VMobject
 
     eff_fps = fps if fps is not None else scene.fps
-    timeline = scene.compile_timeline()
+    timeline = replace(scene.compile_timeline(), fps=eff_fps)
     graphics = tuple(g for g in scene.all_graphics() if isinstance(g, VMobject))
     width, height = scene.resolution
     bg = _background(scene)
     total_frames = max(1, timeline.total_frames)
+    update_roots = tuple(scene.graphics)
+    has_updaters = any(root.has_updaters for root in update_roots)
 
     ctx = RenderContext(
         graphics=graphics,
@@ -252,6 +266,8 @@ def render_pool(
         height=height,
         fps=eff_fps,
         background_rgba=bg,
+        theme=scene.theme,
+        update_roots=update_roots if has_updaters else (),
     )
 
     out = Path(output_path)
@@ -266,6 +282,11 @@ def render_pool(
     )
 
     worker_count = compute_worker_count(workers)
+    if has_updaters and worker_count > 1:
+        logger.warning(
+            "Per-frame updaters require deterministic single-process rendering; using workers=1.",
+        )
+        worker_count = 1
 
     # SharedMemory output ring (zero-copy). Fall back to pickle on failure.
     ring: SharedMemoryRing | None = None
@@ -286,20 +307,34 @@ def render_pool(
     frames_written = 0
 
     try:
-        if ring is not None:
+        if worker_count == 1:
+            # Avoid multiprocessing entirely. This is also the default Windows
+            # path, so ordinary user scripts do not recursively spawn.
+            _init_worker(ctx)
+            for frame_index in range(total_frames):
+                pipe.write_frame(_render_index(frame_index))
+                frames_written += 1
+                if on_progress is not None:
+                    on_progress(frames_written, total_frames)
+        elif ring is not None:
             # ── SharedMemory pipeline ──
-            shm_tasks = list(iter_shm_slots(total_frames, ring))
             with mp.Pool(
                 processes=worker_count,
                 initializer=_init_worker,
                 initargs=(ctx,),
             ) as pool:
-                for frame_index in pool.imap(_render_index_to_shm, shm_tasks):
-                    frame_bytes = ring.read_slot(frame_index)
-                    pipe.write_frame(frame_bytes)
-                    frames_written += 1
-                    if on_progress is not None:
-                        on_progress(frames_written, total_frames)
+                # A slot cannot be reused until the main process has consumed
+                # it. Dispatch one ring-sized batch at a time to make that
+                # ownership explicit and eliminate overwrite races.
+                for batch_start in range(0, total_frames, ring.num_slots):
+                    batch_end = min(total_frames, batch_start + ring.num_slots)
+                    tasks = list(iter_shm_slots(batch_end, ring))[batch_start:batch_end]
+                    for frame_index in pool.imap(_render_index_to_shm, tasks):
+                        frame_bytes = ring.read_slot(frame_index)
+                        pipe.write_frame(frame_bytes)
+                        frames_written += 1
+                        if on_progress is not None:
+                            on_progress(frames_written, total_frames)
         else:
             # ── Pickle fallback pipeline ──
             frame_indices = range(total_frames)

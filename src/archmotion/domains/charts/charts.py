@@ -10,6 +10,7 @@ floor; positive values grow upward (toward smaller y).
 
 from __future__ import annotations
 
+import math
 from typing import TYPE_CHECKING
 
 from archmotion.core.pathops import arc_triplets
@@ -35,13 +36,17 @@ class BarChart(VMobject):
         max_value: float | None = None,
     ) -> None:
         """Store data + geometry, then generate the bar contours."""
-        self.values = list(values)
+        self.values = _validated_values(values)
+        if bar_width <= 0 or gap < 0 or height <= 0:
+            raise ValueError("bar_width and height must be positive; gap cannot be negative")
         self.bar_width = bar_width
         self.gap = gap
         self.height = height
         self.origin = origin
-        auto_max = max(self.values) if self.values else 1.0
+        auto_max = max((abs(value) for value in self.values), default=1.0)
         self.max_value = max_value if max_value is not None else auto_max
+        if not math.isfinite(self.max_value) or self.max_value <= 0:
+            raise ValueError("max_value must be a positive finite number")
         super().__init__()
 
     def generate_points(self) -> None:
@@ -52,7 +57,7 @@ class BarChart(VMobject):
         step = self.bar_width + self.gap
         for i, value in enumerate(self.values):
             frac = value / self.max_value if self.max_value else 0.0
-            bar_h = max(0.0, frac) * self.height
+            bar_h = frac * self.height
             x = ox + i * step
             top = oy - bar_h
             self.start_new_path((x, oy))
@@ -75,12 +80,16 @@ class LineChart(VMobject):
         max_value: float | None = None,
     ) -> None:
         """Store data + geometry, then generate the polyline."""
-        self.values = list(values)
+        self.values = _validated_values(values)
+        if width <= 0 or height <= 0:
+            raise ValueError("width and height must be positive")
         self.width = width
         self.height = height
         self.origin = origin
-        auto_max = max(self.values) if self.values else 1.0
+        auto_max = max((abs(value) for value in self.values), default=1.0)
         self.max_value = max_value if max_value is not None else auto_max
+        if not math.isfinite(self.max_value) or self.max_value <= 0:
+            raise ValueError("max_value must be a positive finite number")
         super().__init__()
 
     def generate_points(self) -> None:
@@ -112,7 +121,11 @@ class PieChart(VMobject):
         start_angle: float = -90.0,
     ) -> None:
         """Store data + geometry, then generate the wedge contours."""
-        self.values = list(values)
+        self.values = _validated_values(values)
+        if any(value < 0 for value in self.values):
+            raise ValueError("pie chart values cannot be negative")
+        if radius <= 0:
+            raise ValueError("radius must be positive")
         self.radius = radius
         self.center = center
         self.start_angle = start_angle
@@ -137,3 +150,67 @@ class PieChart(VMobject):
             self.add_line_to((cx, cy))
             self.close_path()
             angle += sweep
+
+
+class ScatterPlot(VMobject):
+    """A scatter plot — one dot per ``(x, y)`` data point on an implicit grid.
+
+    The data range is auto-computed (or overridden) and mapped to pixel space.
+    Each data point becomes a small filled circle contour.
+    """
+
+    def __init__(
+        self,
+        points: Sequence[tuple[float, float]],
+        *,
+        x_range: tuple[float, float] | None = None,
+        y_range: tuple[float, float] | None = None,
+        width: float = 200.0,
+        height: float = 150.0,
+        origin: Point = (0.0, 0.0),
+        dot_radius: float = 5.0,
+    ) -> None:
+        """Store data + geometry, then generate the dot contours."""
+        self.data_points = [(float(x), float(y)) for x, y in points]
+        if any(not math.isfinite(value) for point in self.data_points for value in point):
+            raise ValueError("scatter plot points must be finite")
+        if width <= 0 or height <= 0 or dot_radius <= 0:
+            raise ValueError("width, height, and dot_radius must be positive")
+        self._x_range = x_range
+        self._y_range = y_range
+        self.width = width
+        self.height = height
+        self.origin = origin
+        self.dot_radius = dot_radius
+        super().__init__()
+
+    def generate_points(self) -> None:
+        """Map each data point to pixel space and emit a small circle."""
+        if not self.data_points:
+            return
+        xs = [p[0] for p in self.data_points]
+        ys = [p[1] for p in self.data_points]
+        x_min, x_max = self._x_range or (min(xs), max(xs))
+        y_min, y_max = self._y_range or (min(ys), max(ys))
+        x_span = x_max - x_min if x_max > x_min else 1.0
+        y_span = y_max - y_min if y_max > y_min else 1.0
+        ox, oy = self.origin
+        for dx, dy in self.data_points:
+            px = ox + (dx - x_min) / x_span * self.width
+            py = oy - (dy - y_min) / y_span * self.height
+            self._emit_dot((px, py), self.dot_radius)
+
+    def _emit_dot(self, center: Point, radius: float) -> None:
+        """Append a filled circle contour at ``center``."""
+        cx, cy = center
+        self.start_new_path((cx + radius, cy))
+        self.add_arc((cx, cy), radius, 0.0, 360.0)
+        self.close_path()
+
+
+def _validated_values(values: Sequence[float]) -> list[float]:
+    """Coerce chart values to finite floats."""
+    result = [float(value) for value in values]
+    if any(not math.isfinite(value) for value in result):
+        raise ValueError("chart values must be finite")
+    return result

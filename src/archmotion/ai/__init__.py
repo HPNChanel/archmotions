@@ -27,6 +27,7 @@ from pydantic import ValidationError
 
 from archmotion.ai.builder import build_scene
 from archmotion.ai.schema import SceneSpec
+from archmotion.errors import ArchMotionError
 
 if TYPE_CHECKING:
     from archmotion.core.scene import Scene
@@ -35,7 +36,7 @@ if TYPE_CHECKING:
 MAX_YAML_FILE_SIZE: int = 1_048_576
 
 
-class YAMLParseError(Exception):
+class YAMLParseError(ArchMotionError):
     """Raised when YAML parsing or validation fails.
 
     The error message is designed to be human-readable AND
@@ -49,7 +50,7 @@ class YAMLParseError(Exception):
     def __init__(
         self,
         message: str,
-        errors: list[dict] | None = None,
+        errors: list[dict[str, object]] | None = None,
         yaml_content: str | None = None,
     ) -> None:
         """Store the message, optional Pydantic errors, and offending YAML content."""
@@ -90,10 +91,7 @@ def load_yaml(source: str | Path) -> Scene:
     # Security: file size check
     file_size = path.stat().st_size
     if file_size > MAX_YAML_FILE_SIZE:
-        msg = (
-            f"YAML file too large: {file_size:,} bytes "
-            f"(max {MAX_YAML_FILE_SIZE:,} bytes)"
-        )
+        msg = f"YAML file too large: {file_size:,} bytes (max {MAX_YAML_FILE_SIZE:,} bytes)"
         raise YAMLParseError(msg)
 
     # Read and parse YAML
@@ -113,11 +111,13 @@ def load_yaml(source: str | Path) -> Scene:
     try:
         spec = SceneSpec(**data)
     except ValidationError as exc:
-        error_list = exc.errors()
+        error_list = [dict(error) for error in exc.errors()]
         # Build human-readable error report
         lines = ["YAML validation failed:"]
         for err in error_list:
-            loc = " → ".join(str(p) for p in err["loc"])
+            raw_location = err.get("loc", ())
+            location = raw_location if isinstance(raw_location, (list, tuple)) else (raw_location,)
+            loc = " → ".join(str(part) for part in location)
             lines.append(f"  • {loc}: {err['msg']}")
         msg = "\n".join(lines)
         raise YAMLParseError(msg, errors=error_list, yaml_content=raw_content) from exc
@@ -143,10 +143,7 @@ def parse_yaml_string(yaml_string: str) -> Scene:
     """
     # Security: size check
     if len(yaml_string) > MAX_YAML_FILE_SIZE:
-        msg = (
-            f"YAML content too large: {len(yaml_string):,} chars "
-            f"(max {MAX_YAML_FILE_SIZE:,})"
-        )
+        msg = f"YAML content too large: {len(yaml_string):,} chars (max {MAX_YAML_FILE_SIZE:,})"
         raise YAMLParseError(msg)
 
     try:
@@ -162,10 +159,12 @@ def parse_yaml_string(yaml_string: str) -> Scene:
     try:
         spec = SceneSpec(**data)
     except ValidationError as exc:
-        error_list = exc.errors()
+        error_list = [dict(error) for error in exc.errors()]
         lines = ["YAML validation failed:"]
         for err in error_list:
-            loc = " → ".join(str(p) for p in err["loc"])
+            raw_location = err.get("loc", ())
+            location = raw_location if isinstance(raw_location, (list, tuple)) else (raw_location,)
+            loc = " → ".join(str(part) for part in location)
             lines.append(f"  • {loc}: {err['msg']}")
         msg = "\n".join(lines)
         raise YAMLParseError(msg, errors=error_list, yaml_content=yaml_string) from exc

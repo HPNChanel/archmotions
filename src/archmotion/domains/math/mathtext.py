@@ -30,3 +30,6 @@ class MathText(VMobject):
 
 Tex = MathText
 """Alias matching Manim's ``Tex`` naming."""
+
+MathTex = MathText
+"""Alias matching Manim's ``MathTex`` naming."""

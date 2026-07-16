@@ -15,12 +15,28 @@ Auto-generated documentation from source code docstrings.
         - play
         - wait
         - add
+        - setup
+        - construct
+        - tear_down
         - render
+        - save_frame
         - export
         - resolve
         - to_lottie
         - to_svg
         - to_html
+
+---
+
+### ValueTracker / always_redraw
+
+::: archmotion.core.updaters.ValueTracker
+    options:
+      show_source: false
+
+::: archmotion.core.updaters.always_redraw
+    options:
+      show_source: false
 
 ---
 
@@ -146,6 +162,78 @@ Auto-generated documentation from source code docstrings.
     options:
       show_source: false
 
+::: archmotion.animation.base.ReplacementTransform
+    options:
+      show_source: false
+
+---
+
+### Write / Uncreate / Typewriter
+
+::: archmotion.animation.base.Write
+    options:
+      show_source: false
+
+::: archmotion.animation.base.Uncreate
+    options:
+      show_source: false
+
+::: archmotion.animation.base.Typewriter
+    options:
+      show_source: false
+
+---
+
+### DrawBorderThenFill
+
+::: archmotion.animation.base.DrawBorderThenFill
+    options:
+      show_source: false
+
+---
+
+### Growth animations
+
+::: archmotion.animation.base.GrowFromCenter
+    options:
+      show_source: false
+
+::: archmotion.animation.base.GrowFromEdge
+    options:
+      show_source: false
+
+::: archmotion.animation.base.GrowBar
+    options:
+      show_source: false
+
+---
+
+### Chart animations
+
+::: archmotion.animation.recipes.DrawLine
+    options:
+      show_source: false
+
+::: archmotion.animation.recipes.SweepPie
+    options:
+      show_source: false
+
+---
+
+### Indicator / effect animations
+
+::: archmotion.animation.recipes.Flash
+    options:
+      show_source: false
+
+::: archmotion.animation.recipes.Indicate
+    options:
+      show_source: false
+
+::: archmotion.animation.recipes.FadeToColor
+    options:
+      show_source: false
+
 ---
 
 ## Geometry Domain
@@ -158,6 +246,22 @@ Auto-generated documentation from source code docstrings.
     options:
       show_source: false
 
+::: archmotion.domains.geometry.shapes.ArcBetweenPoints
+    options:
+      show_source: false
+
+::: archmotion.domains.geometry.shapes.Bezier
+    options:
+      show_source: false
+
+::: archmotion.domains.geometry.shapes.Brace
+    options:
+      show_source: false
+
+::: archmotion.domains.geometry.coordinate_systems.NumberPlane
+    options:
+      show_source: false
+
 ---
 
 ## Charts Domain
@@ -166,7 +270,27 @@ Auto-generated documentation from source code docstrings.
     options:
       show_source: false
 
+::: archmotion.domains.charts.charts.LineChart
+    options:
+      show_source: false
+
 ::: archmotion.domains.charts.charts.PieChart
+    options:
+      show_source: false
+
+::: archmotion.domains.charts.charts.ScatterPlot
+    options:
+      show_source: false
+
+---
+
+## Text Domain
+
+::: archmotion.domains.text.text.Text
+    options:
+      show_source: false
+
+::: archmotion.domains.text.text.Paragraph
     options:
       show_source: false
 

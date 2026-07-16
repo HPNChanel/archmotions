@@ -74,10 +74,14 @@ _PHASE_MAP: dict[type, tuple[str, str, str]] = {
 
 _FIX_SUGGESTIONS: dict[type, str] = {
     DuplicateIdError: "Ensure all Node and Connection IDs are unique.",
-    CircularReferenceError: "Break the positioning cycle by removing one .right_of()/.below() call.",
+    CircularReferenceError: (
+        "Break the positioning cycle by removing one .right_of()/.below() call."
+    ),
     InvalidConnectionError: "Check that connection source and target are valid Node instances.",
     OverflowCanvasError: "Reduce node count, decrease distances, or use a higher resolution.",
-    OrphanNodeError: "Position all nodes using .right_of()/.below() etc., or let auto-layout handle it.",
+    OrphanNodeError: (
+        "Position all nodes using .right_of()/.below() etc., or let auto-layout handle it."
+    ),
     EmptyTimelineError: "Add at least one scene.play() call before scene.render().",
     FFmpegNotFoundError: "Install FFmpeg: https://ffmpeg.org/download.html — ensure it's on PATH.",
     FFmpegCrashError: "Check FFmpeg logs. Try a different encoder or reduce resolution.",

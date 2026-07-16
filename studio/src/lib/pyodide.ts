@@ -34,13 +34,22 @@ export function initPyodide(onProgress?: InitProgress): Promise<PyodideInterface
     await py.loadPackage(["micropip", "pydantic", "pyyaml", "numpy"]);
 
     onProgress?.(0.75, "Installing the ArchMotion engine…");
-    const micropip = py.pyimport("micropip");
     // All Pyodide-compatible runtime deps (pydantic, pyyaml, numpy) are loaded
-    // above, so we skip transitive dependency resolution with `deps: false`.
+    // above, so we skip transitive dependency resolution with Python's actual
+    // keyword argument. Passing `{ deps: false }` through the JS proxy is a
+    // positional dict, not a keyword argument, and makes micropip resolve the
+    // native skia/imageio wheels that do not exist for Pyodide.
     // This prevents micropip from trying to fetch the heavy skia-python /
     // imageio-ffmpeg / Pillow / rich deps, which are only needed for the
     // server-side MP4 path and are unavailable in the browser.
-    await micropip.install(WHEEL_URL, { deps: false });
+    py.globals.set("__am_wheel_url", WHEEL_URL);
+    try {
+      await py.runPythonAsync(
+        "import micropip\nawait micropip.install(__am_wheel_url, deps=False)",
+      );
+    } finally {
+      py.globals.delete("__am_wheel_url");
+    }
 
     onProgress?.(0.95, "Defining the compiler bridge…");
     py.runPython(BRIDGE_PY);

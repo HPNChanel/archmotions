@@ -10,20 +10,21 @@ from archmotion.animation import Transform
 from archmotion.core import Scene
 from archmotion.domains.geometry import (
     Annulus,
-    Arc,
+    ArcBetweenPoints,
     Arrow,
     Axes,
+    Bezier,
+    Brace,
     Circle,
     DashedLine,
-    Dot,
     DoubleArrow,
     Ellipse,
     FunctionGraph,
     Line,
     NumberLine,
+    NumberPlane,
     ParametricFunction,
     Polygon,
-    Polyline,
     Rectangle,
     RegularPolygon,
     RoundedRectangle,
@@ -136,3 +137,47 @@ def test_transform_between_geometry_shapes():
 def test_rounded_rectangle_generates_points():
     rr = RoundedRectangle(width=120.0, height=80.0, corner_radius=15.0)
     assert rr.n_curves >= 8
+
+
+def test_arc_between_points_generates_curve():
+    arc = ArcBetweenPoints((0.0, 0.0), (100.0, 0.0), angle=90.0)
+    assert arc.n_curves >= 1
+    # Endpoints should be near the specified points.
+    pts = arc.points
+    assert pts[0][0] == pytest.approx(0.0, abs=1.0)
+    assert pts[-1][0] == pytest.approx(100.0, abs=1.0)
+
+
+def test_arc_between_points_straight_when_flat():
+    arc = ArcBetweenPoints((0.0, 0.0), (100.0, 0.0), angle=0.1)
+    assert arc.n_curves >= 1
+
+
+def test_bezier_requires_valid_point_count():
+    with pytest.raises(ValueError, match="1 \\+ 3k"):
+        Bezier([(0.0, 0.0), (1.0, 1.0)])
+
+
+def test_bezier_generates_cubic_segments():
+    bz = Bezier([(0.0, 0.0), (30.0, 50.0), (70.0, 50.0), (100.0, 0.0)])
+    assert bz.n_curves == 1
+    # Two-segment Bezier (7 points).
+    bz2 = Bezier([
+        (0.0, 0.0), (20.0, 40.0), (40.0, 40.0), (60.0, 0.0),
+        (80.0, -40.0), (100.0, -40.0), (120.0, 0.0),
+    ])
+    assert bz2.n_curves == 2
+
+
+def test_brace_generates_points():
+    b = Brace(width=120.0, height=16.0)
+    assert b.n_curves >= 3
+    pts = b.points
+    assert len(pts) >= 10
+
+
+def test_number_plane_generates_grid():
+    np = NumberPlane(x_range=(-3.0, 3.0), y_range=(-2.0, 2.0), unit_size=40.0)
+    # Should have many contours (one per grid line).
+    assert len(np.contour_starts) >= 6
+    assert np.n_curves >= 6

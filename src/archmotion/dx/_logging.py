@@ -66,6 +66,7 @@ def setup_logging(
     logger.setLevel(numeric_level)
 
     # Console handler
+    console_handler: logging.Handler
     if use_rich and _HAS_RICH:
         console_handler = RichHandler(
             level=numeric_level,

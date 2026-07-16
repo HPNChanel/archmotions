@@ -125,10 +125,7 @@ class SharedMemoryRing:
         block = self._blocks[idx]
 
         if len(data) != self.frame_size:
-            msg = (
-                f"Frame data size mismatch: expected {self.frame_size}, "
-                f"got {len(data)}"
-            )
+            msg = f"Frame data size mismatch: expected {self.frame_size}, got {len(data)}"
             raise ValueError(msg)
 
         buf = cast("memoryview", block.buf)

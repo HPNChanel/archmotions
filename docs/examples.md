@@ -139,6 +139,8 @@ The v2.0 differentiator: multiple domains coexist in one scene, with cross-domai
 | `examples/08_fusion_morph.py` | architecture + geometry + charts | `Node` → `Circle` → `PieChart` |
 | `examples/09_fusion_math_over_arch.py` | architecture + math | LaTeX equation over a diagram |
 | `examples/10_fusion_code_walkthrough.py` | architecture + code | `CodeBlock` with data-flow `Transfer` |
+| `examples/11_chart_animations.py` | charts | `GrowBar` + `DrawLine` + `SweepPie` reveals |
+| `examples/12_mvp_scene.py` | geometry + text + updater | Production MP4/PNG CLI smoke |
 
 ```python
 from archmotion.animation import Transform
@@ -167,5 +169,10 @@ python examples/03_microservices.py
 python examples/v2_fusion_demo.py
 ```
 
-Architecture examples output MP4 files in the current directory. Fusion demos
-export SVG + Lottie by default (Skia/FFmpeg optional for MP4).
+MP4 and PNG are the supported production outputs. Fusion demos may also export
+SVG and Lottie artifacts, but those exporters are experimental in v2.0.
+
+```bash
+archmotion render examples/12_mvp_scene.py MvpScene -ql -o mvp.mp4
+archmotion still examples/12_mvp_scene.py MvpScene -ql -o mvp.png
+```

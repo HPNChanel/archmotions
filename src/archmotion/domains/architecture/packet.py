@@ -10,7 +10,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from archmotion.constants import PACKET_SIZE
+from archmotion.constants import (
+    DEFAULT_FONT_FAMILY,
+    PACKET_LABEL_FONT_SIZE,
+    PACKET_SIZE,
+    Z_EFFECT,
+    Z_LABEL,
+)
 from archmotion.core.vmobject import VMobject
 
 if TYPE_CHECKING:
@@ -36,9 +42,30 @@ class Packet(VMobject):
         self.connection: Connection | None = connection
         self.size = size
         self.center = center
-        super().__init__()
+        super().__init__(z_index=Z_EFFECT)
         if color is not None:
             self.set_fill(color)
+        self._label_graphic = self._make_label()
+        if self._label_graphic is not None:
+            self.add(self._label_graphic)
+
+    def _make_label(self) -> VMobject | None:
+        """Create a payload label just above the moving packet."""
+        if not self.label:
+            return None
+        try:
+            from archmotion.domains.text.text import Text
+
+            label = Text(
+                self.label,
+                family=DEFAULT_FONT_FAMILY,
+                size=PACKET_LABEL_FONT_SIZE,
+            )
+            label.move_to(self.center[0], self.center[1] - self.size)
+            label.set_z(Z_LABEL + 1)
+            return label
+        except (ImportError, RuntimeError):
+            return None
 
     def generate_points(self) -> None:
         """Trace a circle of diameter ``size`` centered on ``center``."""

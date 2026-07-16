@@ -16,10 +16,14 @@ v0.2.0 Routing Strategy:
 
 from __future__ import annotations
 
-from archmotion._types import Point
+from typing import TYPE_CHECKING
+
 from archmotion.constants import ROUTING_THRESHOLD
 from archmotion.layout.astar import astar_route, simplify_path
-from archmotion.layout.bbox import BoundingBox
+
+if TYPE_CHECKING:
+    from archmotion._types import Point
+    from archmotion.layout.bbox import BoundingBox
 
 
 def manhattan_route(
@@ -83,10 +87,7 @@ def _try_astar_route(
     src_anchor, tgt_anchor = _select_anchors(source_bbox, target_bbox)
 
     # Filter obstacles: exclude source and target themselves
-    filtered = [
-        obs for obs in obstacles
-        if obs is not source_bbox and obs is not target_bbox
-    ]
+    filtered = [obs for obs in obstacles if obs is not source_bbox and obs is not target_bbox]
 
     if not filtered:
         return None  # No obstacles to route around

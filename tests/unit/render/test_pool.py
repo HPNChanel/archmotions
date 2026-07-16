@@ -7,6 +7,7 @@ exercise real rendering are gated on skia + ffmpeg availability.
 from __future__ import annotations
 
 import multiprocessing as mp
+import sys
 
 import pytest
 
@@ -38,7 +39,7 @@ class TestComputeWorkerCount:
     def test_auto_sized(self):
         workers = compute_worker_count(None)
         cpu = mp.cpu_count() or 4
-        expected = max(1, min(int(cpu * 0.75), 14))
+        expected = 1 if sys.platform == "win32" else max(1, min(int(cpu * 0.75), 14))
         assert workers == expected
 
 

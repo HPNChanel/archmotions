@@ -16,7 +16,10 @@ Usage:
 from __future__ import annotations
 
 import sys
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
+
+if TYPE_CHECKING:
+    from types import TracebackType
 
 try:
     from rich.progress import (
@@ -24,6 +27,7 @@ try:
         MofNCompleteColumn,
         Progress,
         SpinnerColumn,
+        TaskID,
         TaskProgressColumn,
         TextColumn,
         TimeElapsedColumn,
@@ -60,10 +64,10 @@ class RenderProgress:
     def __init__(self, description: str = "Rendering") -> None:
         self._description = description
         self._progress: Progress | None = None
-        self._task_id: object | None = None
+        self._task_id: TaskID | None = None
         self._last_milestone: int = -1
 
-    def __enter__(self) -> "ProgressCallback":
+    def __enter__(self) -> ProgressCallback:
         """Start the progress display and return a callback function."""
         if _HAS_RICH:
             self._progress = Progress(
@@ -77,11 +81,17 @@ class RenderProgress:
             )
             self._progress.start()
             self._task_id = self._progress.add_task(
-                self._description, total=None,
+                self._description,
+                total=None,
             )
         return self._callback
 
-    def __exit__(self, exc_type, exc_val, exc_tb) -> None:  # noqa: ANN001
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
         """Stop the progress display."""
         if self._progress is not None:
             self._progress.stop()
@@ -112,7 +122,7 @@ class RenderProgress:
 
 def create_progress_callback(
     description: str = "Rendering",
-) -> tuple["RenderProgress", "ProgressCallback"]:
+) -> tuple[RenderProgress, ProgressCallback]:
     """Create a progress bar and its callback without context manager.
 
     Useful when you need to manually control the lifecycle.

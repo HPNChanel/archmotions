@@ -21,6 +21,16 @@ from archmotion.core.transform import Transform
 from archmotion.core.vgroup import VGroup
 from archmotion.core.vmobject import VMobject
 
+
+def __getattr__(name: str) -> object:
+    """Load updater helpers lazily to keep ``core`` independent of animation."""
+    if name in {"ValueTracker", "always_redraw"}:
+        from archmotion.core.updaters import ValueTracker, always_redraw
+
+        return {"ValueTracker": ValueTracker, "always_redraw": always_redraw}[name]
+    raise AttributeError(name)
+
+
 __all__ = [
     "AnimateBuilder",
     "Camera",
@@ -35,4 +45,6 @@ __all__ = [
     "Transform",
     "VGroup",
     "VMobject",
+    "ValueTracker",
+    "always_redraw",
 ]

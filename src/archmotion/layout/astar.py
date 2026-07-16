@@ -23,9 +23,12 @@ from __future__ import annotations
 
 import heapq
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
-from archmotion._types import Point
 from archmotion.layout.bbox import BoundingBox
+
+if TYPE_CHECKING:
+    from archmotion._types import Point
 
 # Inflation margin around obstacles (pixels).
 # Routes will keep at least this distance from any node edge.
@@ -71,10 +74,10 @@ def _bbox_corners(bbox: BoundingBox) -> list[Point]:
         List of 4 corner (x, y) tuples: TL, TR, BL, BR.
     """
     return [
-        (bbox.x, bbox.y),                                 # Top-left
-        (bbox.x + bbox.width, bbox.y),                     # Top-right
-        (bbox.x, bbox.y + bbox.height),                    # Bottom-left
-        (bbox.x + bbox.width, bbox.y + bbox.height),       # Bottom-right
+        (bbox.x, bbox.y),  # Top-left
+        (bbox.x + bbox.width, bbox.y),  # Top-right
+        (bbox.x, bbox.y + bbox.height),  # Bottom-left
+        (bbox.x + bbox.width, bbox.y + bbox.height),  # Bottom-right
     ]
 
 
@@ -119,7 +122,7 @@ def _generate_waypoints(
             unique[2:],  # Skip start and end
             key=lambda p: abs(p[0] - mid[0]) + abs(p[1] - mid[1]),
         )
-        unique = [start, end] + scored[: _MAX_WAYPOINTS - 2]
+        unique = [start, end, *scored[: _MAX_WAYPOINTS - 2]]
 
     return unique
 
@@ -259,7 +262,7 @@ class _AStarNode:
     point: Point
     parent_idx: int
 
-    def __lt__(self, other: "_AStarNode") -> bool:
+    def __lt__(self, other: _AStarNode) -> bool:
         """Compare by f_score for heapq ordering."""
         return self.f_score < other.f_score
 
@@ -285,7 +288,7 @@ def astar_route(
         no valid path exists (fallback to direct routing needed).
 
     Complexity:
-        O(W² × N) where W = number of waypoints, N = number of obstacles.
+        O(W^2 x N) where W = number of waypoints, N = number of obstacles.
         Typical W ≤ 4N + 2, so effectively O(N³). With the _MAX_WAYPOINTS
         cap and typical scene sizes (5-50 nodes), this is well under 10ms.
     """
@@ -311,9 +314,15 @@ def astar_route(
     closed: set[int] = set()
 
     h = _manhattan_distance(start, end)
-    heapq.heappush(open_heap, _AStarNode(
-        f_score=h, g_score=0.0, point=start, parent_idx=-1,
-    ))
+    heapq.heappush(
+        open_heap,
+        _AStarNode(
+            f_score=h,
+            g_score=0.0,
+            point=start,
+            parent_idx=-1,
+        ),
+    )
 
     while open_heap:
         current = heapq.heappop(open_heap)
@@ -350,9 +359,15 @@ def astar_route(
                 g_scores[i] = tentative_g
                 parent_map[i] = curr_idx
                 f = tentative_g + _manhattan_distance(wp, end)
-                heapq.heappush(open_heap, _AStarNode(
-                    f_score=f, g_score=tentative_g, point=wp, parent_idx=curr_idx,
-                ))
+                heapq.heappush(
+                    open_heap,
+                    _AStarNode(
+                        f_score=f,
+                        g_score=tentative_g,
+                        point=wp,
+                        parent_idx=curr_idx,
+                    ),
+                )
 
     # No path found — return None to signal fallback
     return None

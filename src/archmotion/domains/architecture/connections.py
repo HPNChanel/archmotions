@@ -14,7 +14,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from archmotion.constants import ARROW_SIZE
+from archmotion.constants import (
+    ARROW_SIZE,
+    DEFAULT_FONT_FAMILY,
+    DEFAULT_FONT_SIZE,
+    Z_CONNECTION,
+    Z_LABEL,
+)
 from archmotion.core.vmobject import VMobject
 
 if TYPE_CHECKING:
@@ -77,7 +83,12 @@ class Connection(VMobject):
         # The resolved route polyline (no arrowhead) — used for even-speed
         # packet traversal. Populated by regenerate_points().
         self._route: list[Point] = []
-        super().__init__()
+        super().__init__(z_index=Z_CONNECTION)
+        self.set_fill(opacity=0.0)
+        self._label_graphic = self._make_label()
+        if self._label_graphic is not None:
+            self.add(self._label_graphic)
+            self._position_label()
 
     def generate_points(self) -> None:
         """Trace a default L-route from the endpoints' current boxes.
@@ -132,7 +143,31 @@ class Connection(VMobject):
             self.add_line_to(route[-1])
 
         self._add_arrowhead(route[-2], route[-1])
+        self._position_label()
         return self
+
+    def _make_label(self) -> VMobject | None:
+        """Build the connection's text label as a child VMobject."""
+        if not self.label:
+            return None
+        try:
+            from archmotion.domains.text.text import Text
+
+            text = Text(
+                self.label,
+                family=DEFAULT_FONT_FAMILY,
+                size=DEFAULT_FONT_SIZE,
+            )
+            text.set_z(Z_LABEL)
+            return text
+        except (ImportError, RuntimeError):
+            return None
+
+    def _position_label(self) -> None:
+        """Keep the label centered on the clean routed path."""
+        label = getattr(self, "_label_graphic", None)
+        if label is not None and self._route:
+            label.move_to(*self.point_at_progress(0.5))
 
     def point_at_progress(self, progress: float) -> Point:
         """Point at ``progress`` in [0, 1] along the route (arc-length even).

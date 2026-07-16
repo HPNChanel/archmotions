@@ -1,7 +1,7 @@
 name: Deploy Studio
 
 # Builds the archmotion Python wheel (Pyodide payload) + the Studio frontend,
-# then deploys to Firebase Hosting (free tier) with COOP/COEP headers enabled
+# then optionally deploys to Firebase Hosting with COOP/COEP headers enabled
 # for multi-threaded ffmpeg.wasm.
 #
 # Required secret: FIREBASE_SERVICE_ACCOUNT — the JSON of a Firebase service
@@ -46,7 +46,7 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: npm
           cache-dependency-path: studio/package-lock.json
 
@@ -54,12 +54,16 @@ jobs:
         run: npm ci
         working-directory: studio
 
+      - name: Lint Studio
+        run: npm run lint
+        working-directory: studio
+
       - name: Build Studio
         run: npm run build
         working-directory: studio
 
       - name: Deploy to Firebase Hosting
-        if: ${{ secrets.FIREBASE_SERVICE_ACCOUNT != '' }}
+        if: ${{ github.event_name == 'workflow_dispatch' && secrets.FIREBASE_SERVICE_ACCOUNT != '' }}
         uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}

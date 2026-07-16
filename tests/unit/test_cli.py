@@ -116,6 +116,19 @@ class TestBuildParser:
         args = parser.parse_args(["render", "test.yaml", "--minify"])
         assert args.minify is True
 
+    def test_python_scene_and_quality_flags(self):
+        parser = build_parser()
+        args = parser.parse_args(["render", "demo.py", "Demo", "-ql", "--workers", "1"])
+        assert args.scene == "Demo"
+        assert args.quality == "low"
+        assert args.workers == 1
+
+    def test_still_subcommand(self):
+        parser = build_parser()
+        args = parser.parse_args(["still", "demo.py", "Demo", "-o", "frame.png"])
+        assert args.command == "still"
+        assert args.output == "frame.png"
+
     def test_version_subcommand(self):
         parser = build_parser()
         args = parser.parse_args(["version"])

@@ -179,6 +179,8 @@ def _build_animation(
             raise ValueError(msg)
         target_node = nodes[anim_spec.target]
         hl_kw = dict(kw)
+        if anim_spec.color:
+            hl_kw["color"] = anim_spec.color
         if anim_spec.intensity is not None:
             hl_kw["intensity"] = anim_spec.intensity
         return Highlight(target_node, **hl_kw)

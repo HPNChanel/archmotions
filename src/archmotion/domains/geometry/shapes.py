@@ -161,14 +161,14 @@ class RoundedRectangle(VMobject):
         x1, y1 = cx + w / 2.0, cy + h / 2.0
         # Start at the top edge, just past the top-left corner.
         self.start_new_path((x0 + r, y0))
-        self.add_line_to((x1 - r, y0))                    # top edge
-        self.add_arc((x1 - r, y0 + r), r, -90.0, 90.0)    # top-right corner
-        self.add_line_to((x1, y1 - r))                    # right edge
-        self.add_arc((x1 - r, y1 - r), r, 0.0, 90.0)      # bottom-right corner
-        self.add_line_to((x0 + r, y1))                    # bottom edge
-        self.add_arc((x0 + r, y1 - r), r, 90.0, 90.0)     # bottom-left corner
-        self.add_line_to((x0, y0 + r))                    # left edge
-        self.add_arc((x0 + r, y0 + r), r, 180.0, 90.0)    # top-left corner
+        self.add_line_to((x1 - r, y0))  # top edge
+        self.add_arc((x1 - r, y0 + r), r, -90.0, 90.0)  # top-right corner
+        self.add_line_to((x1, y1 - r))  # right edge
+        self.add_arc((x1 - r, y1 - r), r, 0.0, 90.0)  # bottom-right corner
+        self.add_line_to((x0 + r, y1))  # bottom edge
+        self.add_arc((x0 + r, y1 - r), r, 90.0, 90.0)  # bottom-left corner
+        self.add_line_to((x0, y0 + r))  # left edge
+        self.add_arc((x0 + r, y0 + r), r, 180.0, 90.0)  # top-left corner
         self.close_path()
 
 
@@ -313,6 +313,119 @@ class Annulus(VMobject):
         self.start_new_path((cx + self.inner_radius, cy))
         self.add_arc(self.center, self.inner_radius, 360.0, -360.0)
         self.close_path()
+
+
+class ArcBetweenPoints(VMobject):
+    """A circular arc from ``start`` to ``end`` subtending ``angle`` degrees.
+
+    The arc bulges perpendicular to the chord. A positive ``angle`` produces a
+    counter-clockwise bulge; negative produces clockwise.
+    """
+
+    def __init__(
+        self,
+        start: Point,
+        end: Point,
+        angle: float = 90.0,
+        *,
+        n_segments: int | None = None,
+    ) -> None:
+        """Store endpoints + subtended angle, then generate points."""
+        self.start_pt = start
+        self.end_pt = end
+        self.angle = angle
+        self._n_segments = n_segments
+        super().__init__()
+
+    def generate_points(self) -> None:
+        """Compute the arc center/radius and append an arc."""
+        sx, sy = self.start_pt
+        ex, ey = self.end_pt
+        dx = ex - sx
+        dy = ey - sy
+        chord = math.hypot(dx, dy)
+        if chord < 1e-9:
+            return
+
+        half = math.radians(abs(self.angle) / 2)
+        sin_half = math.sin(half)
+        if sin_half < 1e-6:
+            self.start_new_path(self.start_pt)
+            self.add_line_to(self.end_pt)
+            return
+
+        radius = chord / (2 * sin_half)
+        # Midpoint of chord.
+        mx, my = (sx + ex) / 2, (sy + ey) / 2
+        # Perpendicular unit vector to chord.
+        px, py = -dy / chord, dx / chord
+        # Center offset along perpendicular.
+        h = radius * math.cos(half)
+        if self.angle < 0:
+            px, py = -px, -py
+        cx = mx + px * h
+        cy = my + py * h
+
+        start_a = math.degrees(math.atan2(sy - cy, sx - cx))
+        end_a = math.degrees(math.atan2(ey - cy, ex - cx))
+        sweep = end_a - start_a
+        sweep = (sweep + 360) % 360 if self.angle > 0 else -((-sweep + 360) % 360)
+
+        self.add_arc((cx, cy), radius, start_a, sweep, self._n_segments)
+
+
+class Bezier(VMobject):
+    """A cubic Bezier curve from explicit control points.
+
+    The first point is the path start. Each subsequent group of three points
+    ``(h1, h2, end)`` defines one cubic segment.
+    """
+
+    def __init__(self, control_points: Sequence[Point]) -> None:
+        """Store control points, then generate the cubic path."""
+        if len(control_points) < 4 or (len(control_points) - 1) % 3 != 0:
+            msg = f"Need 1 + 3k points (4, 7, 10, …); got {len(control_points)}."
+            raise ValueError(msg)
+        self._cps = list(control_points)
+        super().__init__()
+
+    def generate_points(self) -> None:
+        """Start a new path at the first control point, add cubic segments."""
+        pts = self._cps
+        self.start_new_path(pts[0])
+        i = 1
+        while i + 2 < len(pts):
+            self.add_cubic_bezier(pts[i], pts[i + 1], pts[i + 2])
+            i += 3
+
+
+class Brace(VMobject):
+    """A curly brace ``⏝`` decorative shape (horizontal, pointing down).
+
+    Generates a smooth brace of the given ``width`` and ``height`` (amplitude).
+    Use ``move_to`` / ``shift`` to position it beside a target.
+    """
+
+    def __init__(
+        self,
+        width: float = 120.0,
+        height: float = 16.0,
+    ) -> None:
+        """Store dimensions, then generate the brace outline."""
+        self._width = width
+        self._height = height
+        super().__init__()
+
+    def generate_points(self) -> None:
+        """Build the brace from two mirrored quadratic-cubic curves."""
+        w = self._width
+        h = self._height
+        # Left tip → center trough → right tip, with characteristic curls.
+        self.start_new_path((0.0, 0.0))
+        self.add_cubic_bezier((w * 0.1, h * 0.6), (w * 0.15, h), (w * 0.35, h))
+        self.add_cubic_bezier((w * 0.45, h * 0.3), (w * 0.5, h * 1.4), (w * 0.5, h * 1.4))
+        self.add_cubic_bezier((w * 0.5, h * 1.4), (w * 0.55, h * 0.3), (w * 0.65, h))
+        self.add_cubic_bezier((w * 0.85, h), (w * 0.9, h * 0.6), (w, 0.0))
 
 
 def points_on_circle(

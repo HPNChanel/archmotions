@@ -16,7 +16,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from archmotion.animation import Create, FadeIn, Transfer
+from archmotion.animation import FadeIn, Transfer, Write
 from archmotion.core import Scene
 from archmotion.domains.architecture import Connection, Node
 from archmotion.domains.code import CodeBlock
@@ -46,7 +46,7 @@ def build_scene() -> Scene:
     # Fade in the architecture, then write the code while a packet flows.
     scene.play(FadeIn(producer, consumer, link, run_time=0.8))
     scene.wait(0.2)
-    scene.play(Create(snippet, run_time=1.5))
+    scene.play(Write(snippet, run_time=1.5))
     scene.play(Transfer(link, payload="event", run_time=1.0))
     scene.wait(0.4)
     return scene

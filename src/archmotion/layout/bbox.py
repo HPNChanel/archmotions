@@ -65,7 +65,7 @@ def estimate_text_bbox(
 ) -> tuple[float, float]:
     """Estimate the bounding box size for a text label.
 
-    Uses a monospace font metric approximation (0.6 × font_size per character).
+    Uses a monospace font metric approximation (0.6 x font_size per character).
     Phase 4 (Skia) will compute exact metrics; this is for layout estimation.
 
     Args:

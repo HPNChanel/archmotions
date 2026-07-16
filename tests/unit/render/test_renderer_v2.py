@@ -10,9 +10,19 @@ import pytest
 
 from archmotion.animation import Create, FadeIn, Transform
 from archmotion.core import Scene
+from archmotion.render.canvas import SkiaCanvas, hex_to_color4f
 from archmotion.render.frame import FrameSpec, render_frame
 
 skia = pytest.importorskip("skia", reason="skia-python not installed")
+
+
+def test_canvas_snapshot_uses_canonical_rgba_byte_order():
+    canvas = SkiaCanvas(1, 1)
+    try:
+        canvas.clear(hex_to_color4f("#ff0000"))
+        assert canvas.snapshot() == bytes((255, 0, 0, 255))
+    finally:
+        canvas.dispose()
 
 
 def _render_first_frame(scene: Scene) -> int:

@@ -6,11 +6,12 @@ compiles animations into actions (advancing the clock); ``wait`` pads time.
 Rendering/exporting is delegated lazily to ``archmotion.render`` /
 ``archmotion.exporter`` so the core stays renderer-agnostic.
 
-The public authoring API is a superset: it supports the v2 Manim-style calls
+The public authoring API supports Manim-inspired calls
 (``play(*anims, run_time=, lag_ratio=)``, ``add(*graphics)``) **and** the
 ergonomic v1-style calls (``add_node``/``add_connection``, ``concurrent()``,
 ``play(anim, duration=)``, ``Scene(resolution="1080p", theme="dark_terminal")``,
-``render(output_file=, show_progress=)``, ``export()``).
+``render(output_file=, show_progress=)``, ``export()``). It is not a Manim API
+compatibility layer.
 """
 
 from __future__ import annotations
@@ -23,6 +24,7 @@ from typing import TYPE_CHECKING, Any
 
 from archmotion.constants import RESOLUTION_MAP
 from archmotion.core.camera import Camera
+from archmotion.core.color import color_to_rgba01
 from archmotion.core.property import CompiledTimeline, MorphAction, PropertyAction
 from archmotion.errors import EmptyTimelineError
 from archmotion.render.theme import ThemeConfig, get_theme
@@ -64,13 +66,17 @@ class Scene:
         elif isinstance(resolution, str):
             if resolution not in RESOLUTION_MAP:
                 msg = (
-                    f"Invalid resolution '{resolution}'. "
-                    f"Choose from: {list(RESOLUTION_MAP.keys())}"
+                    f"Invalid resolution '{resolution}'. Choose from: {list(RESOLUTION_MAP.keys())}"
                 )
                 raise ValueError(msg)
             res = RESOLUTION_MAP[resolution]
         else:
             res = (int(resolution[0]), int(resolution[1]))
+
+        if res[0] <= 0 or res[1] <= 0:
+            raise ValueError(f"resolution dimensions must be positive, got {res}")
+        if fps <= 0:
+            raise ValueError(f"fps must be positive, got {fps}")
 
         self.resolution = res
         self.fps = fps
@@ -90,6 +96,31 @@ class Scene:
         self._actions: list[PropertyAction | MorphAction] = []
         self._clock: float = 0.0
         self._concurrent_buffer: list[Animation] | None = None
+        self._constructed = False
+
+    # ── lifecycle ────────────────────────────────────────────────
+
+    def setup(self) -> None:
+        """Hook executed immediately before :meth:`construct`."""
+
+    def construct(self) -> None:
+        """Override in a Scene subclass to author graphics and animations."""
+
+    def tear_down(self) -> None:
+        """Hook executed immediately after :meth:`construct`."""
+
+    def _ensure_constructed(self) -> None:
+        """Execute subclass authoring exactly once."""
+        if self._constructed:
+            return
+        self._constructed = True
+        try:
+            self.setup()
+            self.construct()
+            self.tear_down()
+        except Exception:
+            self._constructed = False
+            raise
 
     # ── scene graph ──────────────────────────────────────────────
 
@@ -114,10 +145,22 @@ class Scene:
         return self.resolution
 
     def add(self, *graphics: Graphic) -> Scene:
-        """Register graphics in the scene."""
+        """Register unique graphics in the scene without duplicate families."""
         for g in graphics:
-            self._roots.append(g)
-            for descendant in _walk(g):
+            if g in self._roots:
+                continue
+            family = _walk(g)
+            for descendant in family:
+                existing = self._index.get(descendant.id)
+                if existing is not None and existing is not descendant:
+                    msg = f"Duplicate graphic id '{descendant.id}'."
+                    raise ValueError(msg)
+            # A child already registered as a root becomes owned by the new
+            # family instead of being painted twice.
+            self._roots = [root for root in self._roots if root not in family[1:]]
+            if g.parent is None or g.parent not in self._index.values():
+                self._roots.append(g)
+            for descendant in family:
                 self._index[descendant.id] = descendant
         return self
 
@@ -291,6 +334,7 @@ class Scene:
         ``on_progress``/``show_progress`` report frame progress; ``show_progress``
         prints to stderr when no explicit ``on_progress`` is given.
         """
+        self._ensure_constructed()
         if not self._actions:
             raise EmptyTimelineError()
 
@@ -304,7 +348,13 @@ class Scene:
         if workers == 1:
             from archmotion.render.frame import render_scene
 
-            path = render_scene(self, out, fps=fps, crf=crf)
+            path = render_scene(
+                self,
+                out,
+                fps=fps,
+                crf=crf,
+                on_progress=progress,
+            )
             return Path(path)
 
         from archmotion.render.pool import render_pool
@@ -319,6 +369,46 @@ class Scene:
         )
         return result.output_path
 
+    def save_frame(
+        self,
+        output_file: str,
+        *,
+        time: float | None = None,
+    ) -> Path:
+        """Render one timeline timestamp to a PNG image."""
+        self._ensure_constructed()
+        self._prepare()
+        timestamp = self.total_duration if time is None else float(time)
+        if timestamp < 0 or timestamp > self.total_duration:
+            raise ValueError(f"frame time must be within 0..{self.total_duration}, got {timestamp}")
+
+        from PIL import Image
+
+        from archmotion.core.vmobject import VMobject
+        from archmotion.render.frame import FrameSpec, render_frame
+
+        timeline = self.compile_timeline()
+        frame_index = round(timestamp * timeline.fps)
+        width, height = self.resolution
+        spec = FrameSpec(
+            frame_index=frame_index,
+            width=width,
+            height=height,
+            fps=timeline.fps,
+            graphics=[g for g in self.all_graphics() if isinstance(g, VMobject)],
+            timeline=timeline,
+            camera=self.camera,
+            background_rgba=self.theme.background_rgba,
+            theme=self.theme,
+            update_roots=self.graphics,
+        )
+        raw = render_frame(spec)
+        out = Path(output_file)
+        if out.suffix.lower() != ".png":
+            out = out.with_suffix(".png")
+        out.parent.mkdir(parents=True, exist_ok=True)
+        Image.frombytes("RGBA", (width, height), raw).save(out)
+        return out
 
     def export(
         self,
@@ -332,6 +422,7 @@ class Scene:
         The format is auto-detected from the file extension. For MP4 video, use
         :meth:`render`.
         """
+        self._ensure_constructed()
         if not self._actions:
             raise EmptyTimelineError()
 
@@ -364,11 +455,13 @@ class Scene:
             Unlike the v1 ``resolve()``, this returns the compiled timeline, not
             the resolved layout. For resolved node boxes, use :meth:`to_layout_dict`.
         """
+        self._ensure_constructed()
         self._prepare()
         return self.compile_timeline()
 
     def to_lottie(self, *, title: str = "ArchMotion") -> dict[str, Any]:
         """Export the scene as a Lottie dict. Lazy import."""
+        self._ensure_constructed()
         self._prepare()
         from archmotion.exporter.lottie_v2 import build_lottie
 
@@ -376,6 +469,7 @@ class Scene:
 
     def to_svg(self, *, title: str = "ArchMotion Scene") -> str:
         """Export the scene as an animated SVG string. Lazy import."""
+        self._ensure_constructed()
         self._prepare()
         from archmotion.exporter.svg_v2 import build_svg
 
@@ -383,6 +477,7 @@ class Scene:
 
     def to_html(self, *, title: str = "ArchMotion Animation") -> str:
         """Export the scene as a self-contained interactive HTML player string."""
+        self._ensure_constructed()
         self._prepare()
         from archmotion.exporter.html_v2 import build_html
 
@@ -394,6 +489,8 @@ class Scene:
         Works without recorded animations (topology only). Returns fully
         JSON-serializable data for the ArchMotion Studio canvas.
         """
+        self._ensure_constructed()
+
         from archmotion._types import PrimitiveType
         from archmotion.domains.architecture.connections import Connection as ArchConn
         from archmotion.domains.architecture.primitives import Node as ArchNode
@@ -448,35 +545,8 @@ def _register_targets(scene: Scene, anim: Animation) -> None:
 
 def _theme_with_bg(theme: ThemeConfig, background_color: str) -> ThemeConfig:
     """Return a copy of ``theme`` with an overridden background color."""
-    rgba = _hex_to_rgba(background_color)
-    return ThemeConfig(
-        **{**theme.__dict__, "background_rgba": rgba}
-    )
-
-
-def _hex_to_rgba(color: str) -> tuple[float, float, float, float]:
-    """Parse a CSS hex color (#RGB / #RRGGBB / #RRGGBBAA) to an RGBA float tuple."""
-    h = color.lstrip("#")
-    if len(h) == 3:
-        h = "".join(ch * 2 for ch in h)
-    try:
-        if len(h) == 6:
-            r = int(h[0:2], 16) / 255.0
-            g = int(h[2:4], 16) / 255.0
-            b = int(h[4:6], 16) / 255.0
-            a = 1.0
-        elif len(h) == 8:
-            r, g, b, a = (
-                int(h[0:2], 16) / 255.0,
-                int(h[2:4], 16) / 255.0,
-                int(h[4:6], 16) / 255.0,
-                int(h[6:8], 16) / 255.0,
-            )
-        else:
-            r, g, b, a = 1.0, 1.0, 1.0, 1.0
-    except ValueError:
-        r, g, b, a = 1.0, 1.0, 1.0, 1.0
-    return (r, g, b, a)
+    rgba = color_to_rgba01(background_color)
+    return ThemeConfig(**{**theme.__dict__, "background_rgba": rgba})
 
 
 def _walk(graphic: Graphic) -> list[Graphic]:
@@ -488,14 +558,17 @@ def _walk(graphic: Graphic) -> list[Graphic]:
 
 
 def _to_animation(item: object) -> Animation:
-    """Coerce an :class:`AnimateBuilder` into its built :class:`Animation`."""
-    from typing import cast
+    """Coerce an animation builder and reject unsupported play arguments."""
+    from archmotion.animation.base import Animation
 
-    from archmotion.core.graphic import AnimateBuilder
-
-    if isinstance(item, AnimateBuilder):
-        return item.build()
-    return cast("Animation", item)
+    if isinstance(item, Animation):
+        return item
+    build = getattr(item, "build", None)
+    if callable(build):
+        animation = build()
+        if isinstance(animation, Animation):
+            return animation
+    raise TypeError("Scene.play() arguments must be Animation instances or animation builders")
 
 
 def _make_progress(

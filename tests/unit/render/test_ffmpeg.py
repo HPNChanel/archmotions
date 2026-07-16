@@ -64,12 +64,39 @@ class TestDetectEncoder:
 
     def test_nvenc_detected(self, monkeypatch):
         clear_encoder_cache()
-        run = MagicMock()
-        run.stdout = "V..... h264_nvenc ..... NVIDIA NVENC H.264 encoder"
-        monkeypatch.setattr(subprocess, "run", lambda *a, **kw: run)
+        calls = 0
+
+        def successful_probe(*args, **kwargs):
+            nonlocal calls
+            calls += 1
+            run = MagicMock()
+            run.stdout = (
+                "V..... h264_nvenc ..... NVIDIA NVENC H.264 encoder"
+                if calls == 1
+                else ""
+            )
+            run.returncode = 0
+            return run
+
+        monkeypatch.setattr(subprocess, "run", successful_probe)
         config = detect_encoder("/fake/ffmpeg")
         assert config == NVENC_CONFIG
         assert config.name == "h264_nvenc"
+
+    def test_nvenc_listing_without_working_hardware_falls_back(self, monkeypatch):
+        clear_encoder_cache()
+        calls = 0
+
+        def failed_probe(*args, **kwargs):
+            nonlocal calls
+            calls += 1
+            run = MagicMock()
+            run.stdout = "V..... h264_nvenc" if calls == 1 else ""
+            run.returncode = 1
+            return run
+
+        monkeypatch.setattr(subprocess, "run", failed_probe)
+        assert detect_encoder("/fake/ffmpeg").name == "libx264"
 
     def test_libx264_fallback(self, monkeypatch):
         clear_encoder_cache()

@@ -21,6 +21,7 @@ if TYPE_CHECKING:
 
 _COMMAND_RE = re.compile(r"([MmLlHhVvCcQqZz])|(-?\d*\.?\d+(?:[eE][+-]?\d+)?)")
 
+
 @dataclass(frozen=True)
 class ParsedPath:
     """Result of parsing an SVG ``d`` string.

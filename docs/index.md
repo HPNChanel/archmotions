@@ -1,132 +1,87 @@
 # ArchMotion
 
-**Multi-domain code-to-video animation framework**
+ArchMotion v2.0 is a Python/YAML 2D vector animation engine for technical and
+educational videos. It offers a Manim-like scene lifecycle, but it is not a
+drop-in Manim compatibility layer.
 
-Transform system architecture, geometry, charts, math, and code into professional
-animated walkthroughs — from Python or YAML. Cross-domain `Transform` morphs any
-two vector shapes into each other.
+The production-MVP output contract is H.264 MP4 and PNG. Lottie, animated SVG,
+HTML, hardware encoding, and the browser Studio are experimental.
 
----
-
-## Quick Start
-
-### 1. Install
+## Quick start
 
 ```bash
-pip install archmotion
+python -m pip install archmotion
 ```
-
-### 2. Write your architecture
 
 ```python
-from archmotion import Scene, Node, Database, Connection
-from archmotion import FadeIn, Transfer
+from archmotion import Axes, Create, Scene, Text, Write
 
-# Create primitives
-gateway = Node("API Gateway")
-db = Database("PostgreSQL")
-db.right_of(gateway, distance=4)
 
-# Connect them
-conn = Connection(gateway, db, label="SQL Query")
-
-# Animate
-scene = Scene(resolution="1080p", fps=30)
-scene.play(FadeIn(gateway, db, conn))
-scene.play(Transfer(connection=conn, payload="SELECT *"))
-
-# Render to MP4 (parallel pool + GPU encoding when available)
-scene.render("architecture.mp4")
+class Demo(Scene):
+    def construct(self) -> None:
+        axes = Axes(center=(640, 400), x_length=700, y_length=380)
+        graph = axes.plot(lambda x: 0.45 * x * x).set_stroke("#38bdf8", width=3)
+        title = Text("ArchMotion 2D").move_to(640, 80)
+        self.add(axes, graph, title)
+        self.play(Create(axes), Create(graph), Write(title))
 ```
-
-### 3. Run
 
 ```bash
-python my_diagram.py
-# -> architecture.mp4 (playable in any video player)
+archmotion render demo.py Demo -qm -o demo.mp4
+archmotion still demo.py Demo -qm -o demo.png
 ```
 
----
+## Supported MVP
 
-## Features
-
-| Feature | Status |
+| Area | Status |
 |---|---|
-| **Architecture primitives**: Node, Database, Cloud, Queue, Cache, User | ✅ |
-| **Connections**: A\* obstacle-aware Manhattan routing, rounded corners, arrowheads | ✅ |
-| **Animations**: FadeIn, FadeOut, Transfer, Pulse, Highlight, ColorShift, Scale | ✅ |
-| **Multi-Domain Fusion**: geometry, charts, text, math (LaTeX), code in one scene | ✅ |
-| **Cross-Domain Transform**: morph any two vector shapes (Node → Circle → PieChart) | ✅ |
-| **Themes**: dark_terminal, neon_cyber, blueprint, light_paper | ✅ |
-| **YAML AI Interface**: generate videos from LLM-produced YAML | ✅ |
-| **Export**: MP4 (parallel pool + SharedMemory zero-copy IPC), Lottie, SVG, HTML | ✅ |
-| **Rich DX**: progress bars, formatted errors, structured logging | ✅ |
+| Python `Scene.construct()` and strict YAML | Production MVP |
+| Hierarchical 2D vector scene graph and timelines | Production MVP |
+| Architecture, geometry, charts, text, math, code | Production MVP |
+| Animation groups, morphing, trackers, updaters | Production MVP |
+| CPU H.264 MP4 and RGBA PNG | Production MVP |
+| Lottie, animated SVG, HTML | Experimental |
+| Browser Studio and browser MP4 | Experimental |
+| Shared memory and hardware encoding | Experimental opt-in |
+| 3D/OpenGL, audio/compositing, Manim compatibility | Unsupported |
 
----
+Read the canonical
+[MVP status](https://github.com/archmotion/archmotion/blob/main/MVP_STATUS.md)
+before selecting ArchMotion for a project.
 
-## From YAML (AI Workflow)
+## YAML workflow
 
 ```yaml
 version: "2.0"
 theme: neon_cyber
 nodes:
+  - {id: client, label: Client, type: user}
   - id: api
-    label: API Gateway
-  - id: db
-    label: PostgreSQL
-    type: database
-    position: { anchor: api, direction: right_of, distance: 4 }
-
+    label: API Server
+    position: {anchor: client, direction: right_of, distance: 4}
 connections:
-  - id: c1
-    source: api
-    target: db
-    label: SQL Query
-
+  - {id: request, source: client, target: api, label: HTTPS}
 choreography:
   - action: play
-    animation: { type: fade_in, targets: [api, db, c1] }
+    animation: {type: fade_in, targets: [client, api, request]}
   - action: play
-    animation: { type: transfer, connection: c1, payload: "SELECT *" }
+    animation: {type: transfer, connection: request, payload: "GET /"}
 ```
 
-```python
-from archmotion.ai import load_yaml
-scene = load_yaml("architecture.yaml")
-scene.render("output.mp4")
+```bash
+archmotion render architecture.yaml -qm -o architecture.mp4
 ```
-
----
-
-## Export Formats
-
-| Format | Extension | Use Case |
-|---|---|---|
-| MP4 video | `.mp4` | Presentations, social media (Skia raster + FFmpeg) |
-| Lottie JSON | `.json` | Web playback via lottie-web |
-| Animated SVG | `.svg` | Docs, slides, print |
-| HTML player | `.html` | Self-contained interactive player |
-
-```python
-scene.render("out.mp4")            # MP4
-scene.export("out.json")           # Lottie
-scene.export("out.svg")            # SVG
-scene.export("out.html")           # HTML player
-```
-
----
 
 ## Requirements
 
 - Python 3.10+
-- FFmpeg (auto-resolved via `imageio-ffmpeg`, or set `FFMPEG_BINARY`)
-- GPU optional: NVENC (`h264_nvenc`) auto-detected for hardware-accelerated encoding
-- LaTeX optional: `latex` + `dvisvgm` for the math domain (MP4/CLI only, not in-browser)
+- FFmpeg resolved from `FFMPEG_BINARY`, the system path, or `imageio-ffmpeg`
+- Optional native `latex` + `dvisvgm` for math text
+- Optional `ARCHMOTION_HARDWARE_ENCODER=auto` to probe NVENC; CPU remains the
+  supported default
 
----
+## Next steps
 
-## Next Steps
-
-- [Architecture Deep-Dive](architecture.md) — the v2.0 pipeline & module layout
-- [Examples](examples.md) — runnable scripts incl. cross-domain fusion demos
-- [API Reference](api.md) — full class and function documentation
+- [Architecture deep-dive](architecture.md)
+- [Examples](examples.md)
+- [API reference](api.md)

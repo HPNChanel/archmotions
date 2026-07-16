@@ -2,8 +2,9 @@
 
 CONTAINMENT: This module is the ONLY place in the render stack that imports
 ``subprocess``. FFmpeg receives raw RGBA frames via stdin pipe (zero-disk I/O).
-Encoder selection prefers NVENC (GPU), falling back to libx264 (CPU). The
-subprocess is long-running — frames are streamed incrementally.
+The production baseline is libx264 (CPU). Hardware encoding is opt-in and NVENC
+must pass a real encode probe before selection. The subprocess is long-running;
+frames are streamed incrementally.
 """
 
 from __future__ import annotations
@@ -96,6 +97,16 @@ LIBX264_CONFIG = EncoderConfig(
     options=("-preset", "veryfast", "-crf", "20"),
 )
 
+
+def cpu_encoder(crf: int = 20) -> EncoderConfig:
+    """Return the deterministic CPU baseline encoder configuration."""
+    return EncoderConfig(
+        name="libx264",
+        label="CPU (libx264)",
+        options=("-preset", "veryfast", "-crf", str(crf)),
+    )
+
+
 # Module-level cache so the encoder probe runs at most once per process.
 _encoder_cache: EncoderConfig | None = None
 
@@ -134,19 +145,45 @@ def detect_encoder(
             timeout=10,
             check=False,
         )
-        if "h264_nvenc" in result.stdout:
+        if "h264_nvenc" in result.stdout and _probe_nvenc(resolved):
             _encoder_cache = NVENC_CONFIG
             return NVENC_CONFIG
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError, FFmpegNotFoundError):
         pass
 
-    libx = EncoderConfig(
-        name="libx264",
-        label="CPU (libx264)",
-        options=("-preset", "veryfast", "-crf", str(crf)),
-    )
+    libx = cpu_encoder(crf)
     _encoder_cache = libx
     return libx
+
+
+def _probe_nvenc(ffmpeg_path: str) -> bool:
+    """Attempt a one-frame hardware encode, not merely an encoder listing."""
+    try:
+        result = subprocess.run(
+            [
+                ffmpeg_path,
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-f",
+                "lavfi",
+                "-i",
+                "color=c=black:s=16x16:d=0.04",
+                "-frames:v",
+                "1",
+                "-c:v",
+                "h264_nvenc",
+                "-f",
+                "null",
+                "-",
+            ],
+            capture_output=True,
+            timeout=15,
+            check=False,
+        )
+        return result.returncode == 0
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        return False
 
 
 def clear_encoder_cache() -> None:
@@ -222,20 +259,38 @@ class FFmpegPipe:
         if ffmpeg_path is None:
             ffmpeg_path = get_ffmpeg_path()
         if encoder is None:
-            encoder = detect_encoder(ffmpeg_path, crf=crf)
+            # Reliability is the default contract. Hardware encoding is opt-in
+            # until a caller has chosen the platform-specific trade-off.
+            if os.environ.get("ARCHMOTION_HARDWARE_ENCODER", "").lower() in {
+                "1",
+                "true",
+                "auto",
+                "nvenc",
+            }:
+                encoder = detect_encoder(ffmpeg_path, crf=crf)
+            else:
+                encoder = cpu_encoder(crf)
 
         cmd = [
             ffmpeg_path,
             "-y",  # Overwrite output
-            "-f", "rawvideo",
-            "-vcodec", "rawvideo",
-            "-s", f"{width}x{height}",
-            "-pix_fmt", "rgba",
-            "-r", str(fps),
-            "-i", "-",  # Read from stdin pipe
-            "-c:v", encoder.name,
+            "-f",
+            "rawvideo",
+            "-vcodec",
+            "rawvideo",
+            "-s",
+            f"{width}x{height}",
+            "-pix_fmt",
+            "rgba",
+            "-r",
+            str(fps),
+            "-i",
+            "-",  # Read from stdin pipe
+            "-c:v",
+            encoder.name,
             *encoder.options,
-            "-pix_fmt", "yuv420p",  # H.264 compatibility
+            "-pix_fmt",
+            "yuv420p",  # H.264 compatibility
             str(output_path),
         ]
 

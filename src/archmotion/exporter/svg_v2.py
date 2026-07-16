@@ -9,13 +9,18 @@ timeline. Point morphs (``Transform``) are represented by their end state
 
 from __future__ import annotations
 
+from html import escape
 from typing import TYPE_CHECKING
 
 import numpy as np
 
 from archmotion.core.property import Property, PropertyAction
 from archmotion.core.vmobject import VMobject
-from archmotion.render.path_render import DEFAULT_BACKGROUND_RGBA, resolve_effective
+from archmotion.render.path_render import (
+    DEFAULT_BACKGROUND_RGBA,
+    resolve_effective,
+    theme_style_for,
+)
 
 if TYPE_CHECKING:
     from archmotion.core.scene import Scene
@@ -30,14 +35,18 @@ def build_svg(scene: Scene, *, title: str = "ArchMotion Scene") -> str:
     bg = _bg_hex(scene)
     shape_markup: list[str] = []
     keyframes: list[str] = []
+    snapshot = timeline.snapshot_at(timeline.total_duration)
 
     for index, graphic in enumerate(graphics):
         cls = f"am{index}"
         final = resolve_effective(
             graphic,
-            timeline.snapshot_at(timeline.total_duration).scalars.get(graphic.id),
-            timeline.snapshot_at(timeline.total_duration).morphs.get(graphic.id),
+            snapshot.scalars.get(graphic.id),
+            snapshot.morphs.get(graphic.id),
             scene.camera,
+            theme_style_for(graphic, scene.theme),
+            scalar_lookup=snapshot.scalars,
+            morph_contour_starts=snapshot.morph_contours.get(graphic.id),
         )
         d = _points_to_svg_d(final.points, final.contour_starts)
         transform = _matrix_attr(final.matrix)
@@ -48,7 +57,12 @@ def build_svg(scene: Scene, *, title: str = "ArchMotion Scene") -> str:
             f'stroke-opacity="{_fmt(final.stroke_opacity)}" '
             f'opacity="{_fmt(final.opacity)}" transform="{transform}" />'
         )
-        kf = _keyframes_for(graphic.id, cls, timeline.property_actions)
+        kf = _keyframes_for(
+            graphic.id,
+            cls,
+            timeline.property_actions,
+            timeline.total_duration,
+        )
         if kf:
             keyframes.append(kf)
 
@@ -59,11 +73,9 @@ def build_svg(scene: Scene, *, title: str = "ArchMotion Scene") -> str:
         f'<?xml version="1.0" encoding="UTF-8"?>\n'
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" '
         f'viewBox="0 0 {width} {height}">\n'
-        f'  <title>{title}</title>\n'
+        f"  <title>{escape(title)}</title>\n"
         f'  <rect width="{width}" height="{height}" fill="{bg}" />\n'
-        f'{style_block}'
-        + "\n".join(shape_markup)
-        + "\n</svg>\n"
+        f"{style_block}" + "\n".join(shape_markup) + "\n</svg>\n"
     )
 
 
@@ -89,7 +101,8 @@ def _points_to_svg_d(points: object, contour_starts: list[int]) -> str:
             j += 3
         if j < end:
             parts.append(f"L{_fmt(pts[j][0])},{_fmt(pts[j][1])}")
-        parts.append("Z")
+        if _is_closed(pts, start, end):
+            parts.append("Z")
     return " ".join(parts)
 
 
@@ -101,22 +114,20 @@ def _matrix_attr(matrix: object) -> str:
     return f"matrix({_fmt(a)},{_fmt(b)},{_fmt(c)},{_fmt(d)},{_fmt(e)},{_fmt(f)})"
 
 
-def _keyframes_for(target_id: str, cls: str, actions: tuple[PropertyAction, ...]) -> str:
+def _keyframes_for(
+    target_id: str,
+    cls: str,
+    actions: tuple[PropertyAction, ...],
+    duration: float,
+) -> str:
     """Emit CSS @keyframes for opacity/fill on a single graphic."""
     opacity_kfs: list[str] = []
-    fill_kfs: list[str] = []
-    duration = 0.0
     for a in actions:
         if a.target_id != target_id:
             continue
-        duration = max(duration, a.end_time)
         if a.prop == Property.OPACITY:
             opacity_kfs.append(f"{_pct(a.start_time, duration)}{{opacity:{_fmt(a.start_value)}}}")
             opacity_kfs.append(f"{_pct(a.end_time, duration)}{{opacity:{_fmt(a.end_value)}}}")
-        if a.prop in (Property.FILL_R, Property.FILL_G, Property.FILL_B):
-            fill_kfs.append(
-                f"{_pct(a.start_time, duration)}{{fill:rgba({int(a.start_value*255)},_,_)}}"
-            )
     out: list[str] = []
     if opacity_kfs and duration > 0:
         rule = (
@@ -125,6 +136,12 @@ def _keyframes_for(target_id: str, cls: str, actions: tuple[PropertyAction, ...]
         )
         out.append(rule)
     return "\n".join(out)
+
+
+def _is_closed(points: object, start: int, end: int) -> bool:
+    """Infer whether the final cubic returns to the contour's first anchor."""
+    pts = np.asarray(points, dtype=np.float64).reshape(-1, 2)
+    return end - start >= 4 and bool(np.allclose(pts[start], pts[end - 1]))
 
 
 def _pct(t: float, duration: float) -> str:

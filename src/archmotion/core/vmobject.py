@@ -53,9 +53,7 @@ class VMobject(Graphic):
         id: str | None = None,
     ) -> None:
         """Initialize empty points/contours, then call :meth:`generate_points`."""
-        super().__init__(
-            id=id, z_index=z_index, transform=transform, style=style, opacity=opacity
-        )
+        super().__init__(id=id, z_index=z_index, transform=transform, style=style, opacity=opacity)
         self._pts: list[Point] = []
         self._contour_starts: list[int] = []
         self._last: Point | None = None
@@ -94,6 +92,23 @@ class VMobject(Graphic):
     def set_points_array(self, arr: object) -> VMobject:
         """Replace points from an ``(N, 2)`` array, preserving contour_starts."""
         self.points = arr
+        return self
+
+    def set_points_and_contours(
+        self,
+        arr: object,
+        contour_starts: list[int] | tuple[int, ...],
+    ) -> VMobject:
+        """Replace point data and its contour topology atomically."""
+        self.points = arr
+        starts = [int(value) for value in contour_starts]
+        if starts and starts[0] != 0:
+            raise ValueError("the first contour must start at point 0")
+        if any(value < 0 or value >= len(self._pts) for value in starts):
+            raise ValueError("contour start is outside the point array")
+        if starts != sorted(set(starts)):
+            raise ValueError("contour starts must be unique and sorted")
+        self._contour_starts = starts
         return self
 
     # ── path builders ────────────────────────────────────────────
@@ -197,7 +212,7 @@ class VMobject(Graphic):
     def bounding_box(self) -> BoundingBox:
         """Axis-aligned bbox of the transformed points (or children)."""
         if self._pts:
-            transformed = self.transform.apply_to_points(self.points)
+            transformed = self.world_transform().apply_to_points(self.points)
             xs = transformed[:, 0]
             ys = transformed[:, 1]
             x0 = float(xs.min())
@@ -228,16 +243,43 @@ class VMobject(Graphic):
         Does not mutate either graphic. Padding repeats the last triplet so
         contour-start indices stay valid.
         """
-        a = self.points
-        b = other.points
-        target = max(a.shape[0], b.shape[0])
-        # Round up to the next valid count (1 + 3*k) so triplets stay whole.
-        target = _round_to_triplet(target)
-        return resample_array(a, target), resample_array(b, target)
+        source, target, _starts = self.align_with_topology(other)
+        return source, target
 
-    def interpolate_points(
-        self, src: object, tgt: object, alpha: float
-    ) -> VMobject:
+    def align_with_topology(
+        self,
+        other: VMobject,
+    ) -> tuple[object, object, tuple[int, ...]]:
+        """Align two point arrays per contour and return shared contour starts.
+
+        Aligning a flattened array can move contour boundaries into the middle
+        of cubic triplets.  Pairing contours first keeps text, database and
+        other multi-contour morphs structurally valid.
+        """
+        left = _split_contours(self.points, self._contour_starts)
+        right = _split_contours(other.points, other._contour_starts)
+        count = max(len(left), len(right), 1)
+        left = _pad_contours(left, count)
+        right = _pad_contours(right, count)
+        aligned_left: list[NDArray[np.float64]] = []
+        aligned_right: list[NDArray[np.float64]] = []
+        starts: list[int] = []
+        cursor = 0
+        for source_contour, target_contour in zip(left, right, strict=True):
+            size = _round_to_triplet(max(source_contour.shape[0], target_contour.shape[0]))
+            source_aligned = resample_array(source_contour, size)
+            target_aligned = resample_array(target_contour, size)
+            starts.append(cursor)
+            cursor += size
+            aligned_left.append(source_aligned)
+            aligned_right.append(target_aligned)
+        return (
+            np.concatenate(aligned_left, axis=0),
+            np.concatenate(aligned_right, axis=0),
+            tuple(starts),
+        )
+
+    def interpolate_points(self, src: object, tgt: object, alpha: float) -> VMobject:
         """Set points to ``lerp(src, tgt, alpha)`` from two aligned arrays."""
         src_arr = np.asarray(src, dtype=np.float64)
         tgt_arr = np.asarray(tgt, dtype=np.float64)
@@ -246,6 +288,14 @@ class VMobject(Graphic):
             src_arr = resample_array(src_arr, target)
             tgt_arr = resample_array(tgt_arr, target)
         self.points = src_arr + (tgt_arr - src_arr) * alpha
+        return self
+
+    def become(self, other: VMobject) -> VMobject:
+        """Adopt another VMobject's geometry and visual state, preserving id."""
+        self.set_points_and_contours(other.points, other.contour_starts)
+        self.transform = other.transform
+        self.style = other.style
+        self.opacity = other.opacity
         return self
 
     def point_at_progress(self, progress: float) -> Point:
@@ -307,3 +357,27 @@ def _round_to_triplet(count: int) -> int:
         return 1
     remainder = (count - 1) % 3
     return count if remainder == 0 else count + (3 - remainder)
+
+
+def _split_contours(
+    points: NDArray[np.float64],
+    starts: list[int],
+) -> list[NDArray[np.float64]]:
+    """Split a VMobject array into non-empty contour arrays."""
+    if points.shape[0] == 0:
+        return []
+    normalized = starts or [0]
+    ends = [*normalized[1:], points.shape[0]]
+    return [points[start:end] for start, end in zip(normalized, ends, strict=True) if end > start]
+
+
+def _pad_contours(
+    contours: list[NDArray[np.float64]],
+    count: int,
+) -> list[NDArray[np.float64]]:
+    """Pad missing contours with a degenerate one-point contour."""
+    out = list(contours)
+    anchor = out[-1][-1] if out else np.zeros(2, dtype=np.float64)
+    while len(out) < count:
+        out.append(np.asarray([anchor], dtype=np.float64))
+    return out

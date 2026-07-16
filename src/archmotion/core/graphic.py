@@ -12,6 +12,8 @@ mutate the receiver in place and return ``self`` for chaining.
 from __future__ import annotations
 
 import copy as _copy
+import inspect
+import math
 import uuid
 from typing import TYPE_CHECKING, Any, ClassVar
 
@@ -20,7 +22,7 @@ from archmotion.core.transform import Transform
 from archmotion.layout.bbox import BoundingBox
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Callable, Iterable
 
     from archmotion.animation.base import Animation
 
@@ -44,9 +46,10 @@ class Graphic:
         self.z_index: int = z_index
         self.transform: Transform = transform if transform is not None else Transform.identity()
         self.style: Style = style if style is not None else Style()
-        self.opacity: float = opacity
+        self.opacity: float = _checked_opacity(opacity)
         self._parent: Graphic | None = None
         self._children: list[Graphic] = []
+        self._updaters: list[Callable[..., None]] = []
 
     # ── scene graph ──────────────────────────────────────────────
 
@@ -61,8 +64,16 @@ class Graphic:
         return list(self._children)
 
     def add(self, *children: Graphic) -> Graphic:
-        """Attach children. Returns self for chaining."""
+        """Attach unique, acyclic children. Returns self for chaining."""
         for child in children:
+            if not isinstance(child, Graphic):
+                msg = f"Only Graphic instances can be added, got {type(child).__name__}."
+                raise TypeError(msg)
+            if child is self or self in child.family_members():
+                msg = "A Graphic cannot contain itself or one of its ancestors."
+                raise ValueError(msg)
+            if child in self._children:
+                continue
             if child._parent is not None and child._parent is not self:
                 child._parent._children.remove(child)
             child._parent = self
@@ -77,12 +88,89 @@ class Graphic:
                 child._parent = None
         return self
 
+    # ── per-frame updaters ───────────────────────────────────────
+
+    def add_updater(self, updater: Callable[..., None], *, call_updater: bool = False) -> Graphic:
+        """Run ``updater(graphic[, dt])`` before this graphic is painted."""
+        if updater not in self._updaters:
+            self._updaters.append(updater)
+        if call_updater:
+            self._call_updater(updater, 0.0)
+        return self
+
+    def remove_updater(self, updater: Callable[..., None]) -> Graphic:
+        """Remove one updater if present."""
+        if updater in self._updaters:
+            self._updaters.remove(updater)
+        return self
+
+    def clear_updaters(self, *, recursive: bool = True) -> Graphic:
+        """Remove updaters from this graphic and optionally descendants."""
+        self._updaters.clear()
+        if recursive:
+            for child in self._children:
+                child.clear_updaters(recursive=True)
+        return self
+
+    @property
+    def has_updaters(self) -> bool:
+        """Whether this graphic or a descendant has a per-frame updater."""
+        return bool(self._updaters) or any(child.has_updaters for child in self._children)
+
+    def update(self, dt: float, *, recursive: bool = True) -> Graphic:
+        """Apply all registered updater functions."""
+        for updater in list(self._updaters):
+            self._call_updater(updater, dt)
+        if recursive:
+            for child in self._children:
+                child.update(dt, recursive=True)
+        return self
+
+    def _call_updater(self, updater: Callable[..., None], dt: float) -> None:
+        """Invoke a one- or two-argument updater without masking its errors."""
+        parameters = inspect.signature(updater).parameters.values()
+        positional = [
+            p for p in parameters if p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD)
+        ]
+        if len(positional) >= 2:
+            updater(self, dt)
+        else:
+            updater(self)
+
     # ── fluent transforms ────────────────────────────────────────
 
     def shift(self, x: float, y: float) -> Graphic:
         """Translate by ``(x, y)``."""
-        self.transform = Transform.translation(x, y).compose(self.transform)
+        self._apply_world_transform(Transform.translation(x, y))
         return self
+
+    def family_members(self) -> list[Graphic]:
+        """Return ``self`` and all descendants in stable pre-order."""
+        out = [self]
+        for child in self._children:
+            out.extend(child.family_members())
+        return out
+
+    def get_family(self) -> list[Graphic]:
+        """Compatibility alias for :meth:`family_members`."""
+        return self.family_members()
+
+    def ancestors(self) -> list[Graphic]:
+        """Return ancestors from the root down to the direct parent."""
+        out: list[Graphic] = []
+        current = self._parent
+        while current is not None:
+            out.append(current)
+            current = current._parent
+        out.reverse()
+        return out
+
+    def world_transform(self) -> Transform:
+        """Compose every local transform from the scene root to ``self``."""
+        result = Transform.identity()
+        for graphic in [*self.ancestors(), self]:
+            result = result.compose(graphic.transform)
+        return result
 
     def move_to(self, x: float, y: float) -> Graphic:
         """Move so the bounding-box center lands on ``(x, y)``."""
@@ -98,7 +186,7 @@ class Graphic:
         to_origin = Transform.translation(-cx, -cy)
         scaler = Transform.scaling(sx, sy_eff)
         back = Transform.translation(cx, cy)
-        self.transform = back.compose(scaler).compose(to_origin).compose(self.transform)
+        self._apply_world_transform(back.compose(scaler).compose(to_origin))
         return self
 
     def rotate(self, angle_deg: float) -> Graphic:
@@ -107,14 +195,24 @@ class Graphic:
         to_origin = Transform.translation(-cx, -cy)
         rot = Transform.rotation(angle_deg)
         back = Transform.translation(cx, cy)
-        self.transform = back.compose(rot).compose(to_origin).compose(self.transform)
+        self._apply_world_transform(back.compose(rot).compose(to_origin))
         return self
+
+    def _apply_world_transform(self, delta: Transform) -> None:
+        """Apply a canvas-space delta while preserving a nested local matrix."""
+        if self._parent is None:
+            self.transform = delta.compose(self.transform)
+            return
+        parent_world = self._parent.world_transform()
+        self.transform = (
+            parent_world.invert().compose(delta).compose(parent_world).compose(self.transform)
+        )
 
     # ── fluent style ─────────────────────────────────────────────
 
     def set_opacity(self, opacity: float) -> Graphic:
         """Set overall opacity [0.0, 1.0]."""
-        self.opacity = opacity
+        self.opacity = _checked_opacity(opacity)
         return self
 
     def set_fill(self, color: str | None = None, opacity: float | None = None) -> Graphic:
@@ -142,6 +240,105 @@ class Graphic:
         self.z_index = z_index
         return self
 
+    # ── layout helpers ───────────────────────────────────────────
+
+    def next_to(
+        self,
+        other: Graphic,
+        direction: str = "right",
+        buff: float = 20.0,
+    ) -> Graphic:
+        """Place this graphic next to ``other`` in pixel/design space."""
+        mine = self.bounding_box()
+        theirs = other.bounding_box()
+        if direction == "right":
+            return self.move_to(theirs.x + theirs.width + buff + mine.width / 2, theirs.center[1])
+        if direction == "left":
+            return self.move_to(theirs.x - buff - mine.width / 2, theirs.center[1])
+        if direction == "down":
+            return self.move_to(theirs.center[0], theirs.y + theirs.height + buff + mine.height / 2)
+        if direction == "up":
+            return self.move_to(theirs.center[0], theirs.y - buff - mine.height / 2)
+        msg = "direction must be one of: right, left, down, up"
+        raise ValueError(msg)
+
+    def align_to(self, other: Graphic, edge: str = "left") -> Graphic:
+        """Align one bounding-box edge or center axis with ``other``."""
+        mine = self.bounding_box()
+        theirs = other.bounding_box()
+        if edge == "left":
+            return self.shift(theirs.x - mine.x, 0.0)
+        if edge == "right":
+            return self.shift(theirs.x + theirs.width - mine.x - mine.width, 0.0)
+        if edge == "top":
+            return self.shift(0.0, theirs.y - mine.y)
+        if edge == "bottom":
+            return self.shift(0.0, theirs.y + theirs.height - mine.y - mine.height)
+        if edge == "center_x":
+            return self.shift(theirs.center[0] - mine.center[0], 0.0)
+        if edge == "center_y":
+            return self.shift(0.0, theirs.center[1] - mine.center[1])
+        msg = "edge must be left, right, top, bottom, center_x, or center_y"
+        raise ValueError(msg)
+
+    def arrange(self, direction: str = "right", buff: float = 20.0) -> Graphic:
+        """Arrange direct children sequentially along one axis."""
+        if not self._children:
+            return self
+        for previous, current in zip(self._children, self._children[1:], strict=False):
+            current.next_to(previous, direction=direction, buff=buff)
+        return self
+
+    def arrange_in_grid(
+        self,
+        *,
+        rows: int | None = None,
+        cols: int | None = None,
+        buff: float = 20.0,
+    ) -> Graphic:
+        """Arrange direct children in a compact row-major grid."""
+        count = len(self._children)
+        if count == 0:
+            return self
+        if rows is None and cols is None:
+            cols = math.ceil(math.sqrt(count))
+        if cols is None:
+            cols = math.ceil(count / max(1, rows or 1))
+        if rows is None:
+            rows = math.ceil(count / max(1, cols))
+        if rows <= 0 or cols <= 0:
+            raise ValueError("rows and cols must be positive")
+        widths = [child.bounding_box().width for child in self._children]
+        heights = [child.bounding_box().height for child in self._children]
+        cell_w = max(widths, default=0.0) + buff
+        cell_h = max(heights, default=0.0) + buff
+        origin = self._children[0].bounding_box().center
+        for index, child in enumerate(self._children):
+            row, col = divmod(index, cols)
+            child.move_to(origin[0] + col * cell_w, origin[1] + row * cell_h)
+        return self
+
+    def to_edge(
+        self,
+        edge: str,
+        *,
+        frame_size: tuple[int, int] = (1280, 720),
+        buff: float = 20.0,
+    ) -> Graphic:
+        """Move this graphic to a frame edge while preserving the other axis."""
+        bbox = self.bounding_box()
+        width, height = frame_size
+        if edge == "left":
+            return self.shift(buff - bbox.x, 0.0)
+        if edge == "right":
+            return self.shift(width - buff - bbox.x - bbox.width, 0.0)
+        if edge == "top":
+            return self.shift(0.0, buff - bbox.y)
+        if edge == "bottom":
+            return self.shift(0.0, height - buff - bbox.y - bbox.height)
+        msg = "edge must be one of: left, right, top, bottom"
+        raise ValueError(msg)
+
     # ── geometry ─────────────────────────────────────────────────
 
     def bounding_box(self) -> BoundingBox:
@@ -149,7 +346,7 @@ class Graphic:
         if self._children:
             return _union_boxes(c.bounding_box() for c in self._children)
         # Point-less, child-less graphic: a zero box at the transform origin.
-        origin = self.transform.apply_to_point((0.0, 0.0))
+        origin = self.world_transform().apply_to_point((0.0, 0.0))
         return BoundingBox(origin[0], origin[1], 0.0, 0.0)
 
     # ── copy ─────────────────────────────────────────────────────
@@ -161,6 +358,7 @@ class Graphic:
         clone.transform = _copy.copy(self.transform)
         clone.style = self.style  # frozen dataclass — safe to share
         clone._parent = None
+        clone._updaters = list(self._updaters)
         clone._children = [c.copy() for c in self._children]
         for c in clone._children:
             c._parent = clone
@@ -187,8 +385,15 @@ class AnimateBuilder:
     """Captures fluent mutations on a clone; builds a state-tween Animation."""
 
     _DELEGATED: ClassVar[set[str]] = {
-        "shift", "move_to", "scale", "rotate",
-        "set_opacity", "set_fill", "set_stroke", "set_color", "set_z",
+        "shift",
+        "move_to",
+        "scale",
+        "rotate",
+        "set_opacity",
+        "set_fill",
+        "set_stroke",
+        "set_color",
+        "set_z",
     }
 
     def __init__(self, graphic: Graphic) -> None:
@@ -253,3 +458,11 @@ def _union_boxes(boxes: Iterable[BoundingBox]) -> BoundingBox:
     x1 = max(xs1)
     y1 = max(ys1)
     return BoundingBox(x, y, max(0.0, x1 - x), max(0.0, y1 - y))
+
+
+def _checked_opacity(value: float) -> float:
+    """Validate an opacity instead of silently producing invalid Skia alpha."""
+    opacity = float(value)
+    if not 0.0 <= opacity <= 1.0:
+        raise ValueError(f"opacity must be between 0 and 1, got {value}")
+    return opacity

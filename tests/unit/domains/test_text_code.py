@@ -76,3 +76,27 @@ def test_codeblock_in_scene_renders_fadein():
     sc.play(FadeIn(*[span for line in cb.children for span in line.children]))
     tl = sc.compile_timeline()
     assert tl.total_frames > 0
+
+
+def test_paragraph_creates_line_per_string():
+    from archmotion.domains.text import Paragraph
+
+    p = Paragraph("Line One\nLine Two\nLine Three", size=30.0)
+    assert len(p.children) == 3
+
+
+def test_paragraph_accepts_list_of_strings():
+    from archmotion.domains.text import Paragraph
+
+    p = Paragraph(["A", "B"], size=30.0)
+    assert len(p.children) == 2
+
+
+def test_paragraph_lines_are_stacked_vertically():
+    from archmotion.domains.text import Paragraph
+
+    p = Paragraph(["Top", "Bottom"], size=40.0, line_spacing=1.5)
+    # Second line should be shifted down (negative y) relative to the first.
+    bbox0 = p.children[0].bounding_box()
+    bbox1 = p.children[1].bounding_box()
+    assert bbox1.y > bbox0.y  # y grows downward; second line is below first
